@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KIRA Activity Graph</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #000;
+      color: #0f0;
+      font-family: 'Courier New', monospace;
+      overflow: hidden;
+    }
+
+    #container {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+    }
+
+    #canvas {
+      display: block;
+    }
+
+    .info {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: #0f0;
+      text-shadow: 0 0 10px #0f0;
+      z-index: 10;
+    }
+
+    .title {
+      font-size: 24px;
+      color: #f00;
+      text-shadow: 0 0 20px #f00;
+      margin-bottom: 10px;
+    }
+
+    .random-list {
+      position: absolute;
+      top: 100px;
+      left: 50px;
+      max-width: 90%;
+      max-height: 80%;
+      overflow: hidden;
+    }
+
+    .random-item {
+      color: #0f0;
+      font-size: 12px;
+      opacity: 0;
+      animation: fadeIn 0.5s forwards;
+    }
+
+    @keyframes fadeIn {
+      to { opacity: 1; }
+    }
+
+    .grid {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    .grid-cell {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 1px solid #0f0;
+      margin: 1px;
+      transition: background-color 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div class="info">
+      <div class="title">📓 ANALYZING PATTERN...</div>
+      <div id="stats"></div>
+    </div>
+    <canvas id="canvas"></canvas>
+    <div id="content"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+  <script>
+    // Data will be injected by the server
+    const DATA = window.ACTIVITY_DATA || {};
+    const STEP = window.RENDER_STEP || 4;
+    const STYLE = window.RENDER_STYLE || 'deathnote';
+
+    // Global variables
+    let scene, camera, renderer;
+    let animationId;
+
+    // Initialize
+    function init() {
+      console.log('Initializing visualization...', { STEP, STYLE });
+
+      switch (STEP) {
+        case 1:
+          renderStep1();
+          break;
+        case 2:
+          renderStep2();
+          break;
+        case 3:
+          renderStep3();
+          break;
+        case 4:
+          renderStep4();
+          break;
+        default:
+          renderStep4();
+      }
+    }
+
+    /**
+     * Step 1: Random list of activities (chaotic)
+     */
+    function renderStep1() {
+      const content = document.getElementById('content');
+      content.className = 'random-list';
+
+      const data = DATA.step1 || [];
+      let delay = 0;
+
+      data.forEach((item, index) => {
+        const div = document.createElement('div');
+        div.className = 'random-item';
+        div.style.animationDelay = `${delay}s`;
+        div.style.position = 'absolute';
+        div.style.left = `${Math.random() * 80}%`;
+        div.style.top = `${Math.random() * 80}%`;
+        div.textContent = `${new Date(item.date).toLocaleString()} - ${item.repo}`;
+        content.appendChild(div);
+        delay += 0.05;
+      });
+    }
+
+    /**
+     * Step 2: Calendar view with layering animation
+     * Weeks stack on top of each other, heatmap intensifies
+     */
+    function renderStep2() {
+      setupThreeJS();
+
+      const calendarData = DATA.step2 || {};
+      const weeks = calendarData.weeks || [];
+
+      if (weeks.length === 0) {
+        console.warn('No weekly data available');
+        camera.position.z = 30;
+        animate();
+        return;
+      }
+
+      // Animation state
+      let currentWeekIndex = 0;
+      const weekMeshes = {};
+      const aggregatedHours = Array(7).fill(null).map(() => Array(24).fill(0));
+
+      function addWeekLayer() {
+        if (currentWeekIndex >= weeks.length) {
+          return; // Animation complete
+        }
+
+        const week = weeks[currentWeekIndex];
+
+        week.forEach(day => {
+          const dayOfWeek = day.dayOfWeek;
+          const hours = day.hours;
+
+          hours.forEach((count, hour) => {
+            if (count === 0) return;
+
+            // Aggregate counts for intensity
+            aggregatedHours[dayOfWeek][hour] += count;
+            const totalCount = aggregatedHours[dayOfWeek][hour];
+
+            // Remove old mesh if exists
+            const meshKey = `${dayOfWeek}-${hour}`;
+            const oldMesh = weekMeshes[meshKey];
+            if (oldMesh) {
+              scene.remove(oldMesh);
+            }
+
+            // Create new mesh with updated intensity
+            const geometry = new THREE.PlaneGeometry(0.4, 0.4);
+            const intensity = Math.min(totalCount / 10, 1);
+            const color = new THREE.Color().setHSL(0.3, 1, 0.2 + intensity * 0.6);
+            const material = new THREE.MeshBasicMaterial({
+              color,
+              side: THREE.DoubleSide,
+              transparent: true,
+              opacity: 0.8 + intensity * 0.2
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+
+            // Position: day of week (x), hour (y)
+            mesh.position.set(
+              dayOfWeek - 3,    // Center around 0 (Sun=0 to Sat=6)
+              hour - 12,         // Hours centered
+              currentWeekIndex * 0.1 // Slight z-offset for layering effect
+            );
+
+            scene.add(mesh);
+            weekMeshes[meshKey] = mesh;
+          });
+        });
+
+        currentWeekIndex++;
+
+        // Continue animation
+        if (currentWeekIndex < weeks.length) {
+          setTimeout(addWeekLayer, 500); // Add next week after 500ms
+        }
+      }
+
+      // Start layering animation
+      addWeekLayer();
+
+      camera.position.set(0, 0, 20);
+      camera.lookAt(0, 0, 0);
+      animate();
+    }
+
+    /**
+     * Step 3: Weekly line graph (2D)
+     */
+    function renderStep3() {
+      setupThreeJS();
+
+      const weekly = DATA.step3 || [];
+      const maxCount = Math.max(...weekly.map(w => w.count), 1);
+
+      // Draw line graph
+      const points = [];
+      weekly.forEach((day, index) => {
+        const x = index - 3; // Center at 0
+        const y = (day.count / maxCount) * 5 - 2.5;
+        points.push(new THREE.Vector3(x, y, 0));
+      });
+
+      // Create line
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+      const line = new THREE.Line(geometry, material);
+      scene.add(line);
+
+      // Add points
+      points.forEach((point, index) => {
+        const dotGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+        const dotMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        const dot = new THREE.Mesh(dotGeometry, dotMaterial);
+        dot.position.copy(point);
+        scene.add(dot);
+
+        // Add label
+        // (In a real implementation, you'd use TextGeometry or sprites)
+      });
+
+      // Add axes
+      addAxes();
+
+      camera.position.z = 10;
+      animate();
+    }
+
+    /**
+     * Step 4: 3D line graph (day × hour × count)
+     */
+    function renderStep4() {
+      setupThreeJS();
+
+      const grid = DATA.step4 || [];
+      const maxCount = Math.max(...grid.map(g => g.count), 1);
+
+      // Group by day to create 7 line graphs
+      const dayGroups = {};
+      grid.forEach(cell => {
+        if (!dayGroups[cell.dayIndex]) {
+          dayGroups[cell.dayIndex] = [];
+        }
+        dayGroups[cell.dayIndex].push(cell);
+      });
+
+      // Draw line for each day
+      Object.keys(dayGroups).forEach(dayIndex => {
+        const dayCells = dayGroups[dayIndex].sort((a, b) => a.hour - b.hour);
+        const points = [];
+
+        dayCells.forEach(cell => {
+          const x = cell.hour - 12; // Hours (-12 to +12)
+          const y = (cell.count / maxCount) * 5; // Height
+          const z = parseInt(dayIndex) - 3; // Days (-3 to +3)
+          points.push(new THREE.Vector3(x, y, z));
+        });
+
+        // Create line
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const color = new THREE.Color().setHSL(parseInt(dayIndex) / 7, 0.8, 0.5);
+        const material = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+        const line = new THREE.Line(geometry, material);
+        scene.add(line);
+
+        // Add dots at peaks
+        points.forEach((point, index) => {
+          if (dayCells[index].count > 0) {
+            const dotGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+            const dotMaterial = new THREE.MeshBasicMaterial({ color });
+            const dot = new THREE.Mesh(dotGeometry, dotMaterial);
+            dot.position.copy(point);
+            scene.add(dot);
+          }
+        });
+      });
+
+      // Add grid and axes
+      addGrid3D();
+      addAxes3D();
+
+      camera.position.set(15, 10, 15);
+      camera.lookAt(0, 0, 0);
+
+      // Rotate camera
+      let angle = 0;
+      function rotateCamera() {
+        angle += 0.005;
+        camera.position.x = Math.cos(angle) * 15;
+        camera.position.z = Math.sin(angle) * 15;
+        camera.lookAt(0, 0, 0);
+      }
+
+      function animate3D() {
+        animationId = requestAnimationFrame(animate3D);
+        rotateCamera();
+        renderer.render(scene, camera);
+      }
+
+      animate3D();
+    }
+
+    /**
+     * Setup Three.js scene
+     */
+    function setupThreeJS() {
+      const canvas = document.getElementById('canvas');
+      const container = document.getElementById('container');
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x000000);
+
+      camera = new THREE.PerspectiveCamera(
+        75,
+        container.clientWidth / container.clientHeight,
+        0.1,
+        1000
+      );
+
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+
+    /**
+     * Animation loop
+     */
+    function animate() {
+      animationId = requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+
+    /**
+     * Add 2D axes
+     */
+    function addAxes() {
+      // X axis
+      const xGeometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-5, -3, 0),
+        new THREE.Vector3(5, -3, 0)
+      ]);
+      const xMaterial = new THREE.LineBasicMaterial({ color: 0x444444 });
+      const xAxis = new THREE.Line(xGeometry, xMaterial);
+      scene.add(xAxis);
+
+      // Y axis
+      const yGeometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-3, -3, 0),
+        new THREE.Vector3(-3, 3, 0)
+      ]);
+      const yMaterial = new THREE.LineBasicMaterial({ color: 0x444444 });
+      const yAxis = new THREE.Line(yGeometry, yMaterial);
+      scene.add(yAxis);
+    }
+
+    /**
+     * Add 3D grid
+     */
+    function addGrid3D() {
+      const gridHelper = new THREE.GridHelper(20, 20, 0x00ff00, 0x003300);
+      gridHelper.position.y = -0.1;
+      scene.add(gridHelper);
+    }
+
+    /**
+     * Add 3D axes
+     */
+    function addAxes3D() {
+      const axesHelper = new THREE.AxesHelper(10);
+      scene.add(axesHelper);
+    }
+
+    // Start when page loads
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  </script>
+</body>
+</html>
