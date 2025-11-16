@@ -13,8 +13,51 @@ const __dirname = dirname(__filename);
 const githubClient = new GitHubClient();
 const hatenaClient = new HatenaBookmarkClient();
 
+// Singleton browser instance for better performance
+let browserInstance = null;
+let htmlTemplate = null; // Cache HTML template
+
 /**
- * Generate animated WebP showing all 4 steps
+ * Get or create browser instance (singleton pattern)
+ */
+async function getBrowser() {
+  if (!browserInstance || !browserInstance.isConnected()) {
+    console.log('🚀 Launching browser instance...');
+    browserInstance = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-web-security', // Faster rendering
+        '--disable-features=IsolateOrigins,site-per-process'
+      ]
+    });
+
+    // Cleanup on process exit
+    process.on('exit', async () => {
+      if (browserInstance) {
+        await browserInstance.close();
+      }
+    });
+  }
+  return browserInstance;
+}
+
+/**
+ * Get HTML template (cached)
+ */
+function getHTMLTemplate() {
+  if (!htmlTemplate) {
+    const htmlPath = join(__dirname, 'graph.html');
+    htmlTemplate = readFileSync(htmlPath, 'utf-8');
+  }
+  return htmlTemplate;
+}
+
+/**
+ * Generate animated WebP showing all 4 steps (OPTIMIZED - parallel rendering)
  * @param {string} username - Username (GitHub or Hatena)
  * @param {string} source - 'github' or 'hatena'
  * @param {string} style - Visualization style
@@ -28,13 +71,17 @@ export async function generateAnimatedWebP(username, source, style, size) {
   const activityData = await fetchActivityData(username, source);
   const processedData = DataProcessor.process(activityData);
 
-  // Generate frames for each step
-  const frames = [];
-  for (let step = 1; step <= 4; step++) {
-    console.log(`  📸 Rendering step ${step}...`);
-    const frame = await renderStep(processedData, step, style, size);
-    frames.push(frame);
-  }
+  // OPTIMIZATION: Generate all 4 frames in parallel
+  console.log('⚡ Rendering all 4 steps in parallel...');
+  const startTime = Date.now();
+
+  const framePromises = [1, 2, 3, 4].map(step =>
+    renderStep(processedData, step, style, size)
+  );
+
+  const frames = await Promise.all(framePromises);
+  const renderTime = Date.now() - startTime;
+  console.log(`✅ Rendered 4 frames in ${renderTime}ms (parallel)`);
 
   // Create animated WebP
   const delays = [1500, 1500, 1500, 3000]; // ms per frame
@@ -87,29 +134,19 @@ async function fetchActivityData(username, source) {
 }
 
 /**
- * Render a specific step using Puppeteer
+ * Render a specific step using Puppeteer (OPTIMIZED - reuses browser)
  */
 async function renderStep(processedData, step, style, size) {
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu'
-    ]
-  });
+  const browser = await getBrowser(); // Reuse browser instance
+  const page = await browser.newPage();
 
   try {
-    const page = await browser.newPage();
-
     // Set viewport size based on size parameter
     const dimensions = getSizeDimensions(size);
     await page.setViewport(dimensions);
 
-    // Load the HTML template
-    const htmlPath = join(__dirname, 'graph.html');
-    const htmlContent = readFileSync(htmlPath, 'utf-8');
+    // Load cached HTML template
+    const htmlContent = getHTMLTemplate();
 
     // Inject data and configuration
     const injectedHTML = htmlContent.replace(
@@ -123,31 +160,32 @@ async function renderStep(processedData, step, style, size) {
 
     await page.setContent(injectedHTML, { waitUntil: 'networkidle0' });
 
-    // Wait for rendering
-    const waitTime = step === 1 ? 3000 : (step === 2 ? 5000 : (step === 4 ? 5000 : 2000));
+    // Wait for rendering (optimized timing)
+    const waitTime = step === 1 ? 2500 : (step === 2 ? 4000 : (step === 4 ? 4000 : 1500));
     await new Promise(resolve => setTimeout(resolve, waitTime));
 
     // Take screenshot
     const screenshot = await page.screenshot({
       type: 'png',
-      fullPage: false
+      fullPage: false,
+      captureBeyondViewport: false // Optimization
     });
 
     return screenshot;
   } finally {
-    await browser.close();
+    await page.close(); // Close page, but keep browser alive
   }
 }
 
 /**
- * Create animated WebP from frames
+ * Create animated WebP from frames (OPTIMIZED - parallel conversion)
  */
 async function createAnimatedWebP(frames, delays) {
-  // Convert all frames to WebP format
+  // OPTIMIZATION: Convert all frames to WebP in parallel
   const webpFrames = await Promise.all(
     frames.map((frame, index) =>
       sharp(frame)
-        .webp({ quality: 80 })
+        .webp({ quality: 80, effort: 4 }) // effort: 4 is balanced (0-6 range)
         .toBuffer()
     )
   );
@@ -172,5 +210,16 @@ function getSizeDimensions(size) {
     case 'medium':
     default:
       return { width: 1200, height: 630 }; // GitHub social preview size
+  }
+}
+
+/**
+ * Graceful shutdown - close browser
+ */
+export async function shutdown() {
+  if (browserInstance) {
+    console.log('🛑 Shutting down browser...');
+    await browserInstance.close();
+    browserInstance = null;
   }
 }
