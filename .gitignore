@@ -10,3 +10,4 @@ cache/
 *.webp
 .vscode/
 .idea/
+.claude/settings.local.json
