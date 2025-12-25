@@ -12,3 +12,4 @@ cache/
 .idea/
 .claude/settings.local.json
 .serena/
+.mcp.json
