@@ -5,6 +5,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { generateAnimatedWebP, generateView, shutdown as shutdownRenderer } from './renderer/webp-generator.js';
+import { getPalette, sanitizePalette, VALID_THEMES as PALETTE_THEMES } from './renderer/palette.js';
 import { CacheManager } from './services/cache.js';
 
 dotenv.config();
@@ -17,7 +18,7 @@ const cache = new CacheManager();
 
 // Shared query param contract
 const VALID_SOURCES = new Set(['github', 'hatena']);
-const VALID_THEMES = new Set(['deathnote']);
+const VALID_THEMES = new Set(PALETTE_THEMES);
 const VALID_SIZES = new Set(['small', 'medium', 'large']);
 const VALID_VIEWS = new Set(['kira', 'month', 'week', 'auto']);
 // GitHub username spec: 1-39 chars, alphanumerics and hyphens.
@@ -27,7 +28,7 @@ const USER_PATTERN = /^[A-Za-z0-9_-]{1,39}$/;
 function parseSharedParams(c) {
   const user = c.req.query('user');
   const source = c.req.query('source') || 'github';
-  const theme = c.req.query('theme') || 'deathnote';
+  const theme = c.req.query('theme') || 'film';
   const size = c.req.query('size') || 'medium';
   const view = c.req.query('view') || 'auto';
 
@@ -50,7 +51,11 @@ function parseSharedParams(c) {
     return { error: `invalid view: ${view}` };
   }
 
-  return { user, source, theme, size, view };
+  // Resolve palette once per request and pass it down. Sanitized so any
+  // accidental non-hex value is replaced before it reaches CSS injection.
+  const palette = sanitizePalette(getPalette(theme, source));
+
+  return { user, source, theme, size, view, palette };
 }
 
 // Eager load template at module init. Failing fast at startup is preferable
@@ -59,24 +64,42 @@ const EMBED_TEMPLATE = readFileSync(join(__dirname, 'renderer', 'embed.html'), '
 
 /**
  * Render the embed template by replacing __USER__ / __SOURCE__ / __THEME__ /
- * __SIZE__ / __VIEW__ placeholders in a single pass. Each value is
- * JSON-stringified and `<` is escaped to `<` so a payload like
- * `?user=</script>...` cannot break out of the script context.
+ * __SIZE__ / __VIEW__ placeholders (script context, JSON-encoded) and
+ * __PALETTE_*__ placeholders (CSS context, raw hex strings) in a single pass.
+ *
+ * Two contexts, two escaping strategies:
+ *   - Script-context placeholders (USER/SOURCE/THEME/SIZE/VIEW) are
+ *     JSON.stringify'd and have `<` escaped to `<` so a payload like
+ *     `?user=</script>...` cannot break out of the script.
+ *   - CSS-context placeholders (PALETTE_*) carry palette tokens that come
+ *     from sanitizePalette() and are guaranteed `^#[0-9a-fA-F]{6}$`. They
+ *     are emitted raw, suitable for `--kira-bg: #xxxxxx;`.
  *
  * Single-pass replacement also prevents placeholder collisions: a value such
  * as `?user=zzz__VIEW__zzz` cannot accidentally inject into a later
  * placeholder slot the way chained `.replace()` calls allowed.
  */
 function renderEmbed(params) {
-  const map = {
+  const scriptMap = {
     USER: params.user,
     SOURCE: params.source,
     THEME: params.theme,
     SIZE: params.size,
     VIEW: params.view
   };
-  return EMBED_TEMPLATE.replace(/__(USER|SOURCE|THEME|SIZE|VIEW)__/g, (_, k) =>
-    JSON.stringify(map[k]).replace(/</g, '\\u003c')
+  const cssMap = {
+    PALETTE_BG: params.palette.background,
+    PALETTE_INK: params.palette.ink,
+    PALETTE_GRID: params.palette.grid,
+    PALETTE_ACCENT: params.palette.accent,
+    PALETTE_HIGHLIGHT: params.palette.highlight
+  };
+  return EMBED_TEMPLATE.replace(
+    /__(USER|SOURCE|THEME|SIZE|VIEW|PALETTE_BG|PALETTE_INK|PALETTE_GRID|PALETTE_ACCENT|PALETTE_HIGHLIGHT)__/g,
+    (_, k) => {
+      if (k in cssMap) return cssMap[k];
+      return JSON.stringify(scriptMap[k]).replace(/</g, '\\u003c');
+    }
   );
 }
 
@@ -114,7 +137,7 @@ app.get('/api/graph', async (c) => {
     return c.json({ error: params.error }, 400);
   }
 
-  const { user, source, theme, size, view } = params;
+  const { user, source, theme, size, view, palette } = params;
 
   try {
     const cacheKey = `graph_${source}_${user}_${theme}_${size}_${view}`;
@@ -129,8 +152,8 @@ app.get('/api/graph', async (c) => {
     }
 
     const webpBuffer = view === 'auto'
-      ? await generateAnimatedWebP(user, source, theme, size)
-      : await generateView(user, source, view, theme, size);
+      ? await generateAnimatedWebP(user, source, theme, size, palette)
+      : await generateView(user, source, view, theme, size, palette);
 
     cache.set(cacheKey, webpBuffer);
 
@@ -215,7 +238,7 @@ app.get('/', (c) => {
       <h3>Shared parameters</h3>
       <p><code>user</code> required</p>
       <p><code>source</code> github | hatena (default github)</p>
-      <p><code>theme</code> deathnote (default deathnote)</p>
+      <p><code>theme</code> film | github | hatena | sepia | mono (default film)</p>
       <p><code>size</code> small | medium | large (default medium)</p>
       <p><code>view</code> kira | month | week | auto (default auto)</p>
     </div>

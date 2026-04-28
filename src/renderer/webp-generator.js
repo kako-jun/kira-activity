@@ -6,6 +6,7 @@ import { dirname, join } from 'path';
 import { GitHubClient } from '../services/github.js';
 import { HatenaBookmarkClient } from '../services/hatena.js';
 import { DataProcessor } from '../utils/data-processor.js';
+import { getPalette, sanitizePalette } from './palette.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -62,12 +63,15 @@ async function getBrowser() {
  *
  * @param {string} username - Username (GitHub or Hatena)
  * @param {string} source - 'github' or 'hatena'
- * @param {string} theme - Visualization theme (e.g. 'deathnote')
+ * @param {string} theme - Visualization theme ('film' | 'github' | 'hatena' | 'sepia' | 'mono')
  * @param {string} size - 'small' | 'medium' | 'large'
+ * @param {object} [palette] - Resolved palette from server. If omitted, resolved here.
  * @returns {Promise<Buffer>} WebP buffer
  */
-export async function generateAnimatedWebP(username, source, theme, size) {
+export async function generateAnimatedWebP(username, source, theme, size, palette) {
   console.log(`Generating animated WebP for ${username} (${source}, theme=${theme})...`);
+
+  const resolvedPalette = sanitizePalette(palette ?? getPalette(theme, source));
 
   const activityData = await fetchActivityData(username, source);
   const processedData = DataProcessor.process(activityData);
@@ -76,7 +80,7 @@ export async function generateAnimatedWebP(username, source, theme, size) {
   const startTime = Date.now();
 
   const framePromises = ALL_VIEWS.map((view) =>
-    renderScene(processedData, VIEW_TO_SCENE[view], theme, size)
+    renderScene(processedData, VIEW_TO_SCENE[view], theme, size, resolvedPalette)
   );
 
   const frames = await Promise.all(framePromises);
@@ -98,9 +102,10 @@ export async function generateAnimatedWebP(username, source, theme, size) {
  * @param {'kira'|'month'|'week'} view
  * @param {string} theme
  * @param {string} size
+ * @param {object} [palette] - Resolved palette from server. If omitted, resolved here.
  * @returns {Promise<Buffer>} WebP buffer
  */
-export async function generateView(username, source, view, theme, size) {
+export async function generateView(username, source, view, theme, size, palette) {
   const scene = VIEW_TO_SCENE[view];
   if (!scene) {
     throw new Error(`Unknown view: ${view}`);
@@ -108,10 +113,12 @@ export async function generateView(username, source, view, theme, size) {
 
   console.log(`Generating view '${view}' for ${username} (${source})...`);
 
+  const resolvedPalette = sanitizePalette(palette ?? getPalette(theme, source));
+
   const activityData = await fetchActivityData(username, source);
   const processedData = DataProcessor.process(activityData);
 
-  const frame = await renderScene(processedData, scene, theme, size);
+  const frame = await renderScene(processedData, scene, theme, size, resolvedPalette);
 
   const webpBuffer = await sharp(frame)
     .webp({ quality: 90 })
@@ -140,7 +147,7 @@ async function fetchActivityData(username, source) {
  * Render a specific scene using Puppeteer (reuses browser).
  * Internal `scene` is a numeric scene ID consumed by graph.html.
  */
-async function renderScene(processedData, scene, theme, size) {
+async function renderScene(processedData, scene, theme, size, palette) {
   const browser = await getBrowser();
   const page = await browser.newPage();
 
@@ -148,14 +155,21 @@ async function renderScene(processedData, scene, theme, size) {
     const dimensions = getSizeDimensions(size);
     await page.setViewport(dimensions);
 
+    // Same XSS-safe pattern used for ACTIVITY_DATA / RENDER_THEME (see PR #11):
+    // JSON-encode then escape `<` to `<` so a `</script>` payload cannot
+    // break out of the injected script context. Palette values are already
+    // hex-only via sanitizePalette() but we still pipe them through the same
+    // escape for symmetry.
     const safeData = JSON.stringify(processedData).replace(/</g, '\\u003c');
     const safeTheme = JSON.stringify(theme).replace(/</g, '\\u003c');
+    const safePalette = JSON.stringify(palette).replace(/</g, '\\u003c');
     const injectedHTML = HTML_TEMPLATE.replace(
       '</head>',
       `<script>
         window.ACTIVITY_DATA = ${safeData};
         window.RENDER_SCENE = ${scene};
         window.RENDER_THEME = ${safeTheme};
+        window.RENDER_PALETTE = ${safePalette};
       </script></head>`
     );
 
