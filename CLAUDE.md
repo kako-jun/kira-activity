@@ -78,7 +78,7 @@ kira-activity/
 
 | 公開 view | 内部 scene | renderScene 関数 | 内容 |
 |---|---|---|---|
-| `kira` | 4 | `renderScene4()` | 3D 分析サーフェス（surface + wireframe + peak edge） |
+| `kira` | 4 | `renderScene4()` | 曜日 × 時刻の活動量を 3D サーフェスで俯瞰、ピーク時刻が発光ラインで強調 |
 | `month` | 2 | `renderScene2()` | 月次カレンダーヒートマップ |
 | `week` | 3 | `renderScene3()` | 週次 2D 折れ線グラフ |
 
