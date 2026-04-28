@@ -38,29 +38,35 @@
       z-index: 10;
     }
     #header strong { color: var(--kira-highlight); }
+    #subtitle {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      color: var(--kira-ink);
+      opacity: 0.6;
+      z-index: 10;
+    }
     #panel {
-      width: 80%;
-      max-width: 720px;
+      width: 92%;
+      max-width: 960px;
       aspect-ratio: 16 / 9;
       border: 1px solid var(--kira-grid);
       background: var(--kira-bg);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      padding: 24px;
-      text-align: center;
+      position: relative;
+      overflow: hidden;
     }
-    #title { color: var(--kira-highlight); font-size: 18px; letter-spacing: 0.15em; }
-    #subtitle { color: var(--kira-ink); font-size: 13px; opacity: 0.7; }
-    #view-label {
-      color: var(--kira-accent);
-      font-size: 28px;
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
+    #kira-image {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      opacity: 0;
+      transition: opacity 0.4s ease-in-out;
     }
-    #note { color: var(--kira-grid); font-size: 11px; margin-top: 8px; }
+    #kira-image.loaded { opacity: 1; }
     #carousel {
       position: absolute;
       bottom: 20px;
@@ -74,19 +80,19 @@
       width: 8px; height: 8px;
       border-radius: 50%;
       background: var(--kira-grid);
-      transition: background 0.2s;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.2s ease;
     }
+    .dot:hover { transform: scale(1.25); }
     .dot.active { background: var(--kira-highlight); }
   </style>
 </head>
 <body>
   <div id="stage">
     <div id="header">KIRA <strong>ACTIVITY</strong></div>
+    <div id="subtitle" data-field="subtitle">user / source</div>
     <div id="panel">
-      <div id="title">ANALYZING PATTERN</div>
-      <div id="subtitle" data-field="subtitle">user / source</div>
-      <div id="view-label" data-field="view">KIRA</div>
-      <div id="note">Phase 1 palette preview. Full visualization arrives in Phase 2.</div>
+      <img id="kira-image" alt="KIRA Activity visualization" />
     </div>
     <div id="carousel">
       <div class="dot" data-view="kira"></div>
@@ -108,55 +114,132 @@
     document.querySelector('[data-field="subtitle"]').textContent =
       PARAMS.user + ' / ' + PARAMS.source + ' / ' + PARAMS.theme + ' / ' + PARAMS.size;
 
+    // Ordered to match the auto-loop ordering in webp-generator.js.
     const VIEWS = ['kira', 'month', 'week'];
     // Per-view dwell time in ms. Kept in sync with webp-generator.js waitTime
     // so the iframe carousel and the /api/graph animated WebP play at the
     // same rhythm. kira (3D) sits 4s as the headline; month renders quickly
     // so 2.5s is enough; week needs the full layering animation to read, so
     // 5s.
-    const VIEW_DELAYS = [4000, 2500, 5000];
-    let current = PARAMS.view;
-    let autoIndex = 0;
-    let autoTimer = null;
+    const VIEW_DELAYS = { kira: 4000, month: 2500, week: 5000 };
+    const CYCLE_TOTAL = VIEWS.reduce((s, v) => s + VIEW_DELAYS[v], 0);
 
-    function setView(v) {
-      const label = document.querySelector('[data-field="view"]');
-      label.textContent = v.toUpperCase();
-      document.querySelectorAll('.dot').forEach((d) => {
-        d.classList.toggle('active', d.dataset.view === v);
+    /**
+     * Build a /api/graph URL for the current PARAMS, swapping in the requested
+     * view. URL-encoding is mandatory because user names can contain `-` etc.,
+     * and we want the same query contract as the server-side parser.
+     */
+    function graphUrl(view) {
+      const qs = new URLSearchParams({
+        user: PARAMS.user,
+        source: PARAMS.source,
+        theme: PARAMS.theme,
+        size: PARAMS.size,
+        view: view
+      });
+      return '/api/graph?' + qs.toString();
+    }
+
+    const img = document.getElementById('kira-image');
+    const dots = Array.from(document.querySelectorAll('.dot'));
+
+    function setActiveDot(view) {
+      dots.forEach((d) => d.classList.toggle('active', d.dataset.view === view));
+    }
+
+    /**
+     * Compute which view the auto-loop animated WebP is currently showing.
+     * The animated WebP plays kira -> month -> week back to back with the
+     * dwell times above, so we can map elapsed time within the cycle to a
+     * view index without the browser needing to actually decode the frames.
+     *
+     * `start` is the first paint timestamp; using it as the loop origin keeps
+     * the dot indicator phase-aligned with the WebP playback regardless of
+     * when the user opened the page.
+     */
+    function viewAtElapsed(elapsed) {
+      const t = elapsed % CYCLE_TOTAL;
+      let acc = 0;
+      for (const v of VIEWS) {
+        acc += VIEW_DELAYS[v];
+        if (t < acc) return v;
+      }
+      return VIEWS[VIEWS.length - 1];
+    }
+
+    let autoStart = 0;
+    let autoRaf = 0;
+    let autoLastView = null;
+
+    function autoTick() {
+      const v = viewAtElapsed(Date.now() - autoStart);
+      if (v !== autoLastView) {
+        autoLastView = v;
+        setActiveDot(v);
+      }
+      autoRaf = requestAnimationFrame(autoTick);
+    }
+
+    function startAutoSync() {
+      autoStart = Date.now();
+      autoLastView = null;
+      autoTick();
+    }
+
+    function stopAutoSync() {
+      if (autoRaf) cancelAnimationFrame(autoRaf);
+      autoRaf = 0;
+    }
+
+    /**
+     * Swap the displayed image with a CSS opacity fade. We drop opacity to 0
+     * first, wait for the transition, then change `src`; the new image fades
+     * back in once it loads. This avoids a hard cut between scenes.
+     */
+    function swapImage(view) {
+      img.classList.remove('loaded');
+      // The 200ms wait matches half of the 400ms CSS transition so the fade-out
+      // is visible but the user does not stare at a blank panel.
+      setTimeout(() => {
+        img.src = graphUrl(view);
+      }, 200);
+    }
+
+    img.addEventListener('load', () => {
+      img.classList.add('loaded');
+    });
+
+    // Pre-warm the cache for all four URLs so manual switches are responsive.
+    // The server caches /api/graph results for an hour, so these requests are
+    // effectively free after the first visitor for a given user.
+    function prewarm() {
+      ['auto', 'kira', 'month', 'week'].forEach((v) => {
+        const pre = new Image();
+        pre.src = graphUrl(v);
       });
     }
 
-    function scheduleNext() {
-      autoTimer = setTimeout(() => {
-        autoIndex = (autoIndex + 1) % VIEWS.length;
-        setView(VIEWS[autoIndex]);
-        scheduleNext();
-      }, VIEW_DELAYS[autoIndex]);
-    }
-
-    function startAuto() {
-      autoIndex = 0;
-      setView(VIEWS[autoIndex]);
-      scheduleNext();
-    }
-
-    function stopAuto() {
-      if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
-    }
-
-    if (current === 'auto') {
-      startAuto();
+    // Initial render. `auto` shows the animated WebP and runs a parallel RAF
+    // loop to drive the carousel dots; pinned views show a static WebP and
+    // light up exactly one dot.
+    if (PARAMS.view === 'auto') {
+      img.src = graphUrl('auto');
+      setActiveDot(VIEWS[0]);
+      startAutoSync();
     } else {
-      setView(current);
+      img.src = graphUrl(PARAMS.view);
+      setActiveDot(PARAMS.view);
     }
+    prewarm();
 
-    // Manual switch from carousel dots (Phase 0 stub)
-    document.querySelectorAll('.dot').forEach((d) => {
+    // Manual switch from carousel dots. Stops the auto-sync (so dot indicator
+    // freezes on the chosen view) and fades to the single-view WebP.
+    dots.forEach((d) => {
       d.addEventListener('click', () => {
-        stopAuto();
-        current = d.dataset.view;
-        setView(current);
+        const v = d.dataset.view;
+        stopAutoSync();
+        setActiveDot(v);
+        swapImage(v);
       });
     });
   </script>
