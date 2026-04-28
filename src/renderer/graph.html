@@ -12,8 +12,8 @@
     }
 
     body {
-      background: #000;
-      color: #0f0;
+      background: var(--kira-bg, #000);
+      color: var(--kira-ink, #ccc);
       font-family: 'Courier New', monospace;
       overflow: hidden;
     }
@@ -32,15 +32,13 @@
       position: absolute;
       top: 20px;
       left: 20px;
-      color: #0f0;
-      text-shadow: 0 0 10px #0f0;
+      color: var(--kira-ink, #ccc);
       z-index: 10;
     }
 
     .title {
       font-size: 24px;
-      color: #f00;
-      text-shadow: 0 0 20px #f00;
+      color: var(--kira-highlight, #f00);
       margin-bottom: 10px;
     }
 
@@ -54,7 +52,7 @@
     }
 
     .random-item {
-      color: #0f0;
+      color: var(--kira-accent, #0f0);
       font-size: 12px;
       opacity: 0;
       animation: fadeIn 0.5s forwards;
@@ -75,7 +73,7 @@
       display: inline-block;
       width: 20px;
       height: 20px;
-      border: 1px solid #0f0;
+      border: 1px solid var(--kira-grid, #0f0);
       margin: 1px;
       transition: background-color 0.3s;
     }
@@ -98,7 +96,33 @@
     // Internal numeric scene ID (1=random list, 2=month, 3=week, 4=kira/3D).
     // Public view names (kira/month/week) are mapped to these IDs in the server.
     const SCENE = window.RENDER_SCENE || 4;
-    const THEME = window.RENDER_THEME || 'deathnote';
+    const THEME = window.RENDER_THEME || 'film';
+    // Palette tokens for the active theme/source. The server resolves these
+    // (see src/renderer/palette.js) and injects them; we fall back to film
+    // values if rendering this template directly without the server.
+    const PALETTE = window.RENDER_PALETTE || {
+      background: '#e8e2d4',
+      ink: '#3a322a',
+      grid: '#bfb6a3',
+      accent: '#7a5c3a',
+      highlight: '#c14a3a'
+    };
+
+    // Mirror palette tokens to CSS variables so the stylesheet picks them up.
+    const root = document.documentElement;
+    root.style.setProperty('--kira-bg', PALETTE.background);
+    root.style.setProperty('--kira-ink', PALETTE.ink);
+    root.style.setProperty('--kira-grid', PALETTE.grid);
+    root.style.setProperty('--kira-accent', PALETTE.accent);
+    root.style.setProperty('--kira-highlight', PALETTE.highlight);
+
+    // Three.js wants 0xRRGGBB ints, not '#rrggbb' strings.
+    function hexToInt(h) { return parseInt(h.slice(1), 16); }
+    const COLOR_BG = hexToInt(PALETTE.background);
+    const COLOR_INK = hexToInt(PALETTE.ink);
+    const COLOR_GRID = hexToInt(PALETTE.grid);
+    const COLOR_ACCENT = hexToInt(PALETTE.accent);
+    const COLOR_HIGHLIGHT = hexToInt(PALETTE.highlight);
 
     // Global variables
     let scene, camera, renderer;
@@ -196,15 +220,19 @@
               scene.remove(oldMesh);
             }
 
-            // Create new mesh with updated intensity
+            // Create new mesh with updated intensity. Color blends from
+            // grid (low) to accent (mid) to highlight (peak) so the heatmap
+            // reads as accent-driven across all themes.
             const geometry = new THREE.PlaneGeometry(0.4, 0.4);
             const intensity = Math.min(totalCount / 10, 1);
-            const color = new THREE.Color().setHSL(0.3, 1, 0.2 + intensity * 0.6);
+            const baseColor = new THREE.Color(COLOR_ACCENT);
+            const peakColor = new THREE.Color(COLOR_HIGHLIGHT);
+            const color = baseColor.clone().lerp(peakColor, intensity);
             const material = new THREE.MeshBasicMaterial({
               color,
               side: THREE.DoubleSide,
               transparent: true,
-              opacity: 0.8 + intensity * 0.2
+              opacity: 0.6 + intensity * 0.4
             });
             const mesh = new THREE.Mesh(geometry, material);
 
@@ -255,14 +283,14 @@
 
       // Create line
       const geometry = new THREE.BufferGeometry().setFromPoints(points);
-      const material = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+      const material = new THREE.LineBasicMaterial({ color: COLOR_ACCENT, linewidth: 2 });
       const line = new THREE.Line(geometry, material);
       scene.add(line);
 
       // Add points
       points.forEach((point, index) => {
         const dotGeometry = new THREE.SphereGeometry(0.15, 16, 16);
-        const dotMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        const dotMaterial = new THREE.MeshBasicMaterial({ color: COLOR_HIGHLIGHT });
         const dot = new THREE.Mesh(dotGeometry, dotMaterial);
         dot.position.copy(point);
         scene.add(dot);
@@ -308,10 +336,11 @@
           points.push(new THREE.Vector3(x, y, z));
         });
 
-        // Create line
+        // Create line — accent for the bulk of the geometry,
+        // highlight for the peak dots. Per-day chroma variation is a
+        // Phase 2/3 refinement; Phase 1 keeps the palette honest.
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const color = new THREE.Color().setHSL(parseInt(dayIndex) / 7, 0.8, 0.5);
-        const material = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+        const material = new THREE.LineBasicMaterial({ color: COLOR_ACCENT, linewidth: 2 });
         const line = new THREE.Line(geometry, material);
         scene.add(line);
 
@@ -319,7 +348,7 @@
         points.forEach((point, index) => {
           if (dayCells[index].count > 0) {
             const dotGeometry = new THREE.SphereGeometry(0.1, 8, 8);
-            const dotMaterial = new THREE.MeshBasicMaterial({ color });
+            const dotMaterial = new THREE.MeshBasicMaterial({ color: COLOR_HIGHLIGHT });
             const dot = new THREE.Mesh(dotGeometry, dotMaterial);
             dot.position.copy(point);
             scene.add(dot);
@@ -360,7 +389,7 @@
       const container = document.getElementById('container');
 
       scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x000000);
+      scene.background = new THREE.Color(COLOR_BG);
 
       camera = new THREE.PerspectiveCamera(
         75,
@@ -390,7 +419,7 @@
         new THREE.Vector3(-5, -3, 0),
         new THREE.Vector3(5, -3, 0)
       ]);
-      const xMaterial = new THREE.LineBasicMaterial({ color: 0x444444 });
+      const xMaterial = new THREE.LineBasicMaterial({ color: COLOR_GRID });
       const xAxis = new THREE.Line(xGeometry, xMaterial);
       scene.add(xAxis);
 
@@ -399,7 +428,7 @@
         new THREE.Vector3(-3, -3, 0),
         new THREE.Vector3(-3, 3, 0)
       ]);
-      const yMaterial = new THREE.LineBasicMaterial({ color: 0x444444 });
+      const yMaterial = new THREE.LineBasicMaterial({ color: COLOR_GRID });
       const yAxis = new THREE.Line(yGeometry, yMaterial);
       scene.add(yAxis);
     }
@@ -408,7 +437,9 @@
      * Add 3D grid
      */
     function addGrid3D() {
-      const gridHelper = new THREE.GridHelper(20, 20, 0x00ff00, 0x003300);
+      // Both center and outer grid lines use the grid token; depth is
+      // implied by the geometry, not by a chroma split.
+      const gridHelper = new THREE.GridHelper(20, 20, COLOR_GRID, COLOR_GRID);
       gridHelper.position.y = -0.1;
       scene.add(gridHelper);
     }
