@@ -29,6 +29,12 @@ npm start
 <iframe src="https://example.com/embed?user=YOUR_USERNAME"></iframe>
 ```
 
+`/embed` は `/api/graph` を `<img>` として読み込み、`view=auto` ではアニメーション
+WebP を再生しつつ、下部のカルーセルドットが現在のビューに同期する。ドットを
+クリックすると自動再生を停止して `kira` / `month` / `week` の単一ビュー WebP に
+opacity フェードで切り替わる。`view=kira|month|week` を URL に渡すと最初から
+特定モードに固定できる。
+
 ### README に画像として貼る
 
 ```markdown
