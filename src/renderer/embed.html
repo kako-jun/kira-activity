@@ -83,8 +83,22 @@
       cursor: pointer;
       transition: background 0.2s ease, transform 0.2s ease;
     }
-    .dot:hover { transform: scale(1.25); }
+    .dot:hover { transform: scale(1.1); }
     .dot.active { background: var(--kira-highlight); }
+    #error-label {
+      position: absolute;
+      bottom: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: var(--kira-grid);
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+      pointer-events: none;
+      z-index: 5;
+    }
+    #error-label.visible { opacity: 1; }
   </style>
 </head>
 <body>
@@ -93,11 +107,12 @@
     <div id="subtitle" data-field="subtitle">user / source</div>
     <div id="panel">
       <img id="kira-image" alt="KIRA Activity visualization" />
+      <div id="error-label">unable to load activity</div>
     </div>
     <div id="carousel">
-      <div class="dot" data-view="kira"></div>
-      <div class="dot" data-view="month"></div>
-      <div class="dot" data-view="week"></div>
+      <div class="dot" data-view="kira" role="button" tabindex="0" aria-label="show kira view"></div>
+      <div class="dot" data-view="month" role="button" tabindex="0" aria-label="show month view"></div>
+      <div class="dot" data-view="week" role="button" tabindex="0" aria-label="show week view"></div>
     </div>
   </div>
 
@@ -141,6 +156,7 @@
     }
 
     const img = document.getElementById('kira-image');
+    const errorLabel = document.getElementById('error-label');
     const dots = Array.from(document.querySelectorAll('.dot'));
 
     function setActiveDot(view) {
@@ -148,17 +164,18 @@
     }
 
     /**
-     * Compute which view the auto-loop animated WebP is currently showing.
-     * The animated WebP plays kira -> month -> week back to back with the
-     * dwell times above, so we can map elapsed time within the cycle to a
-     * view index without the browser needing to actually decode the frames.
+     * Compute which view the auto carousel is currently showing.
+     * In Phase 4 the embed cycles through single-view WebPs client-side
+     * (kira -> month -> week), swapping the <img src> at each boundary so
+     * dots and image stay perfectly in sync. Phase 5 will replace this with
+     * a true animated WebP from /api/graph?view=auto.
      *
-     * `start` is the first paint timestamp; using it as the loop origin keeps
-     * the dot indicator phase-aligned with the WebP playback regardless of
-     * when the user opened the page.
+     * Using `performance.now()` keeps the loop monotonic (not affected by
+     * wall-clock changes) and safe inside iframes. The double-modulo guards
+     * against any negative `elapsed` from clock skew.
      */
     function viewAtElapsed(elapsed) {
-      const t = elapsed % CYCLE_TOTAL;
+      const t = ((elapsed % CYCLE_TOTAL) + CYCLE_TOTAL) % CYCLE_TOTAL;
       let acc = 0;
       for (const v of VIEWS) {
         acc += VIEW_DELAYS[v];
@@ -172,17 +189,24 @@
     let autoLastView = null;
 
     function autoTick() {
-      const v = viewAtElapsed(Date.now() - autoStart);
+      const v = viewAtElapsed(performance.now() - autoStart);
       if (v !== autoLastView) {
         autoLastView = v;
         setActiveDot(v);
+        // Fade-swap to the new view's single-view WebP so the image and the
+        // dot indicator move together.
+        swapImage(v);
       }
       autoRaf = requestAnimationFrame(autoTick);
     }
 
     function startAutoSync() {
-      autoStart = Date.now();
-      autoLastView = null;
+      autoStart = performance.now();
+      autoLastView = VIEWS[0];
+      setActiveDot(VIEWS[0]);
+      // Initial paint: skip the fade so the user sees content immediately
+      // when the iframe opens. Subsequent transitions go through swapImage().
+      img.src = graphUrl(VIEWS[0]);
       autoTick();
     }
 
@@ -195,36 +219,53 @@
      * Swap the displayed image with a CSS opacity fade. We drop opacity to 0
      * first, wait for the transition, then change `src`; the new image fades
      * back in once it loads. This avoids a hard cut between scenes.
+     *
+     * A monotonic `swapSeq` token guards against race conditions when
+     * multiple swaps overlap (e.g. fast manual clicks): only the most recent
+     * call is allowed to commit a new src after the timeout, so an in-flight
+     * stale swap can't overwrite a newer one.
      */
+    let swapSeq = 0;
     function swapImage(view) {
+      const mySeq = ++swapSeq;
       img.classList.remove('loaded');
       // The 200ms wait matches half of the 400ms CSS transition so the fade-out
       // is visible but the user does not stare at a blank panel.
       setTimeout(() => {
+        if (mySeq !== swapSeq) return;
         img.src = graphUrl(view);
       }, 200);
     }
 
     img.addEventListener('load', () => {
       img.classList.add('loaded');
+      errorLabel.classList.remove('visible');
     });
 
-    // Pre-warm the cache for all four URLs so manual switches are responsive.
-    // The server caches /api/graph results for an hour, so these requests are
-    // effectively free after the first visitor for a given user.
+    img.addEventListener('error', () => {
+      // Surface load failures with a quiet inline label rather than leaving
+      // the user staring at an empty panel. The image element keeps its
+      // last successful frame (if any) underneath at opacity 0.
+      errorLabel.classList.add('visible');
+    });
+
+    // Pre-warm the cache for the three single-view WebPs so manual switches
+    // and auto carousel transitions are responsive. The server caches
+    // /api/graph results for an hour, so these requests are effectively free
+    // after the first visitor for a given user. `auto` is intentionally
+    // excluded: the embed never requests it now that the carousel walks the
+    // single-view URLs itself.
     function prewarm() {
-      ['auto', 'kira', 'month', 'week'].forEach((v) => {
+      ['kira', 'month', 'week'].forEach((v) => {
         const pre = new Image();
         pre.src = graphUrl(v);
       });
     }
 
-    // Initial render. `auto` shows the animated WebP and runs a parallel RAF
-    // loop to drive the carousel dots; pinned views show a static WebP and
-    // light up exactly one dot.
+    // Initial render. `auto` walks the single-view WebPs client-side and
+    // syncs the carousel dots in lockstep; pinned views show their single
+    // WebP and light up exactly one dot.
     if (PARAMS.view === 'auto') {
-      img.src = graphUrl('auto');
-      setActiveDot(VIEWS[0]);
       startAutoSync();
     } else {
       img.src = graphUrl(PARAMS.view);
@@ -235,11 +276,18 @@
     // Manual switch from carousel dots. Stops the auto-sync (so dot indicator
     // freezes on the chosen view) and fades to the single-view WebP.
     dots.forEach((d) => {
-      d.addEventListener('click', () => {
+      const activate = () => {
         const v = d.dataset.view;
         stopAutoSync();
         setActiveDot(v);
         swapImage(v);
+      };
+      d.addEventListener('click', activate);
+      d.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate();
+        }
       });
     });
   </script>
