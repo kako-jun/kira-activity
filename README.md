@@ -49,7 +49,7 @@ npm start
 |---|---|---|---|
 | `user` | string | （必須） | ユーザー名 |
 | `source` | `github` / `hatena` | `github` | データソース |
-| `theme` | `deathnote` | `deathnote` | 配色テーマ |
+| `theme` | `film` / `github` / `hatena` / `sepia` / `mono` | `film` | 配色テーマ |
 | `size` | `small` / `medium` / `large` | `medium` | ビューポートサイズ |
 | `view` | `kira` / `month` / `week` / `auto` | `auto` | 表示モード |
 
@@ -60,12 +60,26 @@ npm start
 - `week` — 曜日別の週次 2D 折れ線グラフ（Phase 2 で 7 × 24 オーバーレイに置換予定）
 - `auto` — 上記を順に再生するアニメーション（`/api/graph` のデフォルト挙動）
 
+### テーマと source-aware accent
+
+- `film` — クリーム背景 + 濃い灰/茶インク。デスノート分析モニタの温度感
+- `github` — GitHub 草ダーク配色（黒背景 + 緑）
+- `hatena` — はてな寄り（白背景 + 青）
+- `sepia` — 暖色のセピア
+- `mono` — 無彩色のニュートラル
+
+`theme=film` のときだけ `source` に応じてアクセント色が変わる: `source=github` で
+くすんだ緑、`source=hatena` でくすんだ青。背景・インク・グリッドはフィルム配色のまま
+維持される。他のテーマはアクセントを固定し、テーマ自身のアイデンティティを優先する。
+
 ## 使用例
 
 - `/embed?user=torvalds` — auto 再生する iframe
 - `/embed?user=torvalds&view=kira` — kira 固定の iframe
 - `/api/graph?user=torvalds` — auto をアニメ WebP として書き出し
-- `/api/graph?user=torvalds&view=week&theme=deathnote&size=large` — 単一ビューの WebP
+- `/api/graph?user=torvalds&view=week&theme=film&size=large` — 単一ビューの WebP
+- `/api/graph?user=torvalds&source=github&theme=film` — film 配色 + GitHub 緑のアクセント
+- `/api/graph?user=torvalds&source=hatena&theme=film` — film 配色 + はてな青のアクセント
 
 ## 技術スタック
 

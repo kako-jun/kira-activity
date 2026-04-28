@@ -65,7 +65,7 @@ kira-activity/
 
 - `user` (必須)
 - `source` (`github` | `hatena`、default `github`)
-- `theme` (`deathnote`、default `deathnote`)
+- `theme` (`film` | `github` | `hatena` | `sepia` | `mono`、default `film`)
 - `size` (`small` | `medium` | `large`、default `medium`)
 - `view` (`kira` | `month` | `week` | `auto`、default `auto`)
 
@@ -83,6 +83,23 @@ kira-activity/
 | `week` | 3 | `renderScene3()` | 週次 2D 折れ線グラフ |
 
 scene 1（ランダムリスト）は補助演出。本番ループには含めない。
+
+## Palette アーキテクチャ
+
+配色は `src/renderer/palette.js` に集約された 5 トークン（background / ink / grid /
+accent / highlight）× 5 テーマで定義する。
+
+- `theme=film` のときだけ `source` に応じて accent が変わる（`github`→くすんだ緑、
+  `hatena`→くすんだ青）。background / ink / grid / highlight はフィルム配色のまま。
+- 他のテーマ（`github` / `hatena` / `sepia` / `mono`）はテーマ自身の配色を優先し、
+  source による accent 切り替えは行わない。
+- パレットはサーバ側で 1 回だけ resolve し、`/embed` には CSS 変数（`--kira-bg` ほか）
+  として、`/api/graph` には `window.RENDER_PALETTE` として注入される。
+- CSS 注入の安全性は `sanitizePalette()` が `^#[0-9a-fA-F]{6}$` を保証することで担保。
+  JS 注入は既存の `JSON.stringify(...).replace(/</g, '\\u003c')` パターン。
+
+Phase 1 では scene 1..4 内の最も目立つハードコード色（背景・軸・グリッド・線・
+ドット・3D エッジ）だけパレット化し、ツールチップ等の細部は Phase 2/3 の再設計で扱う。
 
 ## レンダリングフロー
 
@@ -166,7 +183,7 @@ Node.js より 2–3 倍高速（`bun src/server.js`）。
 
 - Three.js による可視化
 - 4 つの `renderScene{N}()` 関数
-- `window.ACTIVITY_DATA` / `window.RENDER_SCENE` / `window.RENDER_THEME` でデータ注入
+- `window.ACTIVITY_DATA` / `window.RENDER_SCENE` / `window.RENDER_THEME` / `window.RENDER_PALETTE` でデータ注入
 
 ### src/renderer/embed.html
 
