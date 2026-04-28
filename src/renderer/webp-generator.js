@@ -63,7 +63,8 @@ async function getBrowser() {
  *
  * @param {string} username - Username (GitHub or Hatena)
  * @param {string} source - 'github' or 'hatena'
- * @param {string} theme - Visualization theme ('film' | 'github' | 'hatena' | 'sepia' | 'mono')
+ * @param {string} theme - Visualization theme. VALID_THEMES のいずれか
+ *   ('film' | 'github' | 'hatena' | 'sepia' | 'mono')。それ以外は film にフォールバック。
  * @param {string} size - 'small' | 'medium' | 'large'
  * @param {object} [palette] - Resolved palette from server. If omitted, resolved here.
  * @returns {Promise<Buffer>} WebP buffer
@@ -100,7 +101,8 @@ export async function generateAnimatedWebP(username, source, theme, size, palett
  * @param {string} username
  * @param {string} source - 'github' | 'hatena'
  * @param {'kira'|'month'|'week'} view
- * @param {string} theme
+ * @param {string} theme - VALID_THEMES のいずれか
+ *   ('film' | 'github' | 'hatena' | 'sepia' | 'mono')。それ以外は film にフォールバック。
  * @param {string} size
  * @param {object} [palette] - Resolved palette from server. If omitted, resolved here.
  * @returns {Promise<Buffer>} WebP buffer
@@ -175,7 +177,11 @@ async function renderScene(processedData, scene, theme, size, palette) {
 
     await page.setContent(injectedHTML, { waitUntil: 'networkidle0' });
 
-    const waitTime = scene === 1 ? 2500 : (scene === 2 ? 4000 : (scene === 4 ? 4000 : 1500));
+    // scene=1 (random list) is dev-only auxiliary and not reachable via
+    // VIEW_TO_SCENE, so it does not appear here. month (2) / kira (4) wait
+    // longer because their animations layer over time; week (3) is a static
+    // line graph and renders in one frame.
+    const waitTime = scene === 2 || scene === 4 ? 4000 : 1500;
     await new Promise((resolve) => setTimeout(resolve, waitTime));
 
     const screenshot = await page.screenshot({

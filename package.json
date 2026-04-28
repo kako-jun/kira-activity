@@ -1,7 +1,7 @@
 {
   "name": "kira-activity",
   "version": "1.0.0",
-  "description": "Death Note L-style activity graph widget - Animated WebP generator for GitHub profiles",
+  "description": "Death Note analysis-screen inspired activity widget — animated WebP and iframe embed for GitHub/Hatena profiles",
   "main": "src/server.js",
   "type": "module",
   "scripts": {
@@ -13,10 +13,12 @@
   },
   "keywords": [
     "github",
+    "hatena",
     "activity",
     "graph",
     "widget",
     "webp",
+    "iframe",
     "death-note",
     "visualization"
   ],

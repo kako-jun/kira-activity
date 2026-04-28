@@ -66,6 +66,10 @@ const THEMES = Object.freeze({
  * Source-aware accent overrides for the film theme. Tuned to read as
  * "film palette + a hint of github/hatena" rather than the source's own
  * brand color. The base (background, ink, grid, highlight) stays film.
+ *
+ * Film theme の中で source を表現する accent。pure な theme=github / theme=hatena
+ * よりトーンを落とし、film のクリーム+灰茶の base に馴染むよう調整している。
+ * 「film の中の github 寄り」と「pure github」は意図的に別色。
  */
 const FILM_ACCENT_BY_SOURCE = Object.freeze({
   github: '#3a7d44', // muted green that lives next to film's brown
@@ -80,7 +84,12 @@ const FILM_ACCENT_BY_SOURCE = Object.freeze({
  * @returns {{background:string, ink:string, grid:string, accent:string, highlight:string}}
  */
 export function getPalette(theme, source) {
-  const base = THEMES[theme] ?? THEMES.film;
+  // Defend against prototype keys like __proto__ / constructor / toString.
+  // Server already whitelists via VALID_THEMES, but this module is exported
+  // and could be called directly with attacker-controlled input.
+  const base = Object.prototype.hasOwnProperty.call(THEMES, theme)
+    ? THEMES[theme]
+    : THEMES.film;
   let accent = base.accent;
   if (theme === 'film' && source && FILM_ACCENT_BY_SOURCE[source]) {
     accent = FILM_ACCENT_BY_SOURCE[source];
@@ -104,7 +113,7 @@ export function getPalette(theme, source) {
  */
 export function sanitizePalette(palette) {
   const out = {};
-  for (const key of ['background', 'ink', 'grid', 'accent', 'highlight']) {
+  for (const key of Object.keys(THEMES.film)) {
     const v = palette[key];
     out[key] = typeof v === 'string' && HEX6.test(v) ? v : '#000000';
   }
