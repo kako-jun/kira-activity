@@ -153,7 +153,7 @@ GitHub のプロフィール右上や README に貼る主戦場。
 
 ### C. iframe App
 
-将来の対話的埋め込み。
+対話的埋め込み。
 
 - Endpoint 例: `/embed?user=...`
 - 自動再生あり
@@ -163,7 +163,7 @@ GitHub のプロフィール右上や README に貼る主戦場。
 
 iframe 用 UI:
 
-- 3 つの丸: `3D`, `Month`, `Week`
+- 3 つの丸: `kira`, `month`, `week`
 - 現在位置だけ少し濃くする
 - UI は小さく、主役を奪わない
 
@@ -172,6 +172,17 @@ iframe 用 UI:
 - `Hono` で HTML を返すシンプルな構成
 - フロントは素の `HTML/CSS/JS` + `Three.js`
 - Next.js は採用しない
+
+> **Phase 4 status:** 実装済み。`embed.html` は `<img id="kira-image">` に
+> `/api/graph` を読み込ませる。`view=auto` のときは embed 側がクライアントサイドで
+> 単一ビュー WebP（kira / month / week）をサイクル時間ごとに `<img>.src` ごと swap し、
+> ドットと画像を完全同期させる（`performance.now()` 起点 RAF ループ + fade swap）。
+> Phase 5 で webp-generator が真の animated WebP を返すようになれば、auto モードは
+> サーバ側の動画 1 本に切り替える。`view=kira|month|week` のときは単一ビュー WebP
+> を表示し、該当ドットだけ active になる。ドットクリックは auto 同期を停止し、
+> CSS opacity フェード（400ms ease-in-out）で単一ビュー WebP に切り替わる。
+> 読み込み待ちを隠すため、3 つの単一ビュー（kira + month + week）を初期 load 時に
+> 並列 pre-warm する（`auto` は embed 側で使わないので除外）。
 
 ## Information Architecture
 
@@ -190,6 +201,8 @@ iframe 用 UI:
 - カルーセル UI
 - 手動切り替え
 - モード固定 URL
+
+> Phase 4 で完了。`/embed` が `/api/graph` 駆動の対話的カルーセルとして動く。
 
 ### Phase 3
 

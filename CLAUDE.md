@@ -188,8 +188,20 @@ Node.js より 2–3 倍高速（`bun src/server.js`）。
 ### src/renderer/embed.html
 
 - `/embed` が返す HTML
-- Phase 0 では view 切替の枠組みだけ（ラベル＋カルーセル）
-- Phase 2 で本格的な Three.js 表示に置き換える
+- `<img id="kira-image">` に `/api/graph` を読み込ませて表示する。Three.js は
+  サーバ側 Puppeteer がすでに WebP 化しているので、iframe では再実行しない
+- `view=auto`: クライアント側で単一ビュー WebP（kira / month / week）をサイクル
+  時間ごとに `<img>.src` swap し、ドットと画像を完全同期させる。`performance.now()`
+  起点の RAF ループ。サイクル長は kira 4s + month 2.5s + week 5s = 11.5s で
+  `webp-generator.js` の dwell time と一致させる。Phase 5 で真の animated WebP が
+  返るようになれば auto はサーバ側動画 1 本に切り替える
+- `view=kira|month|week`: 単一ビュー WebP を表示し、該当ドットだけ active
+- ドットクリック / Enter / Space: auto 同期を停止し、CSS opacity フェード
+  （400ms ease-in-out）で単一ビュー WebP に差し替え。`swapSeq` トークンで
+  重複 swap の race を防止。URL は変更しない（埋め込み先が制御するため）
+- 3 つの単一ビュー（kira + month + week）を初期 load 時に並列 pre-warm して
+  サーバ側 NodeCache（TTL 3600s）をウォームアップ。`auto` は embed 側で使わない
+- ロード失敗時は `#error-label` に "unable to load activity" を控えめに表示
 
 ### src/utils/data-processor.js
 
