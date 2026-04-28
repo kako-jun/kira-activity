@@ -252,13 +252,14 @@ const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
 
 async function gracefulShutdown(signal) {
   console.log(`Received ${signal}, shutting down...`);
+  await new Promise((resolve) => {
+    if (server && typeof server.close === 'function') server.close(() => resolve());
+    else resolve();
+  });
   try {
     await shutdownRenderer();
   } catch (err) {
     console.error('Error during renderer shutdown:', err);
-  }
-  if (server && typeof server.close === 'function') {
-    server.close();
   }
   process.exit(0);
 }
