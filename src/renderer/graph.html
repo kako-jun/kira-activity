@@ -179,135 +179,335 @@
     }
 
     /**
-     * Scene 2 (public: month): Calendar view with layering animation.
-     * Weeks stack on top of each other, heatmap intensifies.
+     * Scene 2 (public: month): Month overview as a 7-column calendar.
+     *
+     * 直近 ~30 日を Sun..Sat 7 列のグリッドに敷き、各日セルの濃度で
+     * 「日量」を、セル右の縦ストリップ 24 本で「時刻帯」を表す。
+     * GitHub 草の劣化コピーにせず、time-of-day の偏りを残す中間ビュー。
      */
     function renderScene2() {
       setupThreeJS();
 
       const calendarData = DATA.step2 || {};
-      const weeks = calendarData.weeks || [];
+      const full = calendarData.full || {};
 
-      if (weeks.length === 0) {
-        console.warn('No weekly data available');
-        camera.position.z = 30;
+      // Sort dates ASC, take the most recent 42 days (max 6 rows × 7 cols)
+      const dateKeys = Object.keys(full).sort();
+      const recentKeys = dateKeys.slice(-42);
+
+      if (recentKeys.length === 0) {
+        console.warn('No calendar data available for month view');
+        camera.position.set(0, 0, 12);
+        camera.lookAt(0, 0, 0);
         animate();
         return;
       }
 
-      // Animation state
-      let currentWeekIndex = 0;
-      const weekMeshes = {};
-      const aggregatedHours = Array(7).fill(null).map(() => Array(24).fill(0));
+      // Build day records and compute the calendar layout.
+      // The first cell is placed under its weekday column (Sun=0..Sat=6),
+      // earlier weekdays in the same starting week stay empty (no mesh).
+      // Parse "YYYY-MM-DD" as local-midnight so getDay()/diffDays line up with
+      // the user's wall-clock week (new Date(key) would be UTC and could shift).
+      const days = recentKeys.map((key) => {
+        const [Y, M, D] = key.split('-').map(Number);
+        const date = new Date(Y, M - 1, D);
+        const hours = full[key];
+        const dayCount = hours.reduce((a, b) => a + b, 0);
+        return { key, date, dayOfWeek: date.getDay(), hours, dayCount };
+      });
 
-      function addWeekLayer() {
-        if (currentWeekIndex >= weeks.length) {
-          return; // Animation complete
-        }
+      const firstDay = days[0];
+      // Row index: how many weeks elapsed since the start of `firstDay`'s week.
+      // rowIndex grows downward (newer = larger). We later flip Y so newer is at bottom.
+      const startOfWeek = new Date(firstDay.date);
+      startOfWeek.setDate(firstDay.date.getDate() - firstDay.dayOfWeek);
+      startOfWeek.setHours(0, 0, 0, 0);
 
-        const week = weeks[currentWeekIndex];
+      let rowMax = 0;
+      const placed = days.map((d) => {
+        const diffDays = Math.floor((d.date - startOfWeek) / (1000 * 60 * 60 * 24));
+        const row = Math.floor(diffDays / 7);
+        if (row > rowMax) rowMax = row;
+        return { ...d, row };
+      });
 
-        week.forEach(day => {
-          const dayOfWeek = day.dayOfWeek;
-          const hours = day.hours;
+      const dayMax = Math.max(1, ...placed.map((d) => d.dayCount));
 
-          hours.forEach((count, hour) => {
-            if (count === 0) return;
+      // Layout constants
+      // CELL/STEP sized so 7 cols × up to 6 rows (most-recent 42 days) fit
+      // inside the central ~60% of the 16:9 viewport at camera z=12.
+      const CELL_W = 1.2;
+      const CELL_H = 1.0;
+      const COL_GAP = 0.15;
+      const ROW_GAP = 0.15;
+      const STEP_X = CELL_W + COL_GAP;
+      const STEP_Y = CELL_H + ROW_GAP;
 
-            // Aggregate counts for intensity
-            aggregatedHours[dayOfWeek][hour] += count;
-            const totalCount = aggregatedHours[dayOfWeek][hour];
+      // Center horizontally (Sun=col 0, Sat=col 6 -> centered around col 3).
+      const COLS = 7;
+      const colMid = (COLS - 1) / 2;
+      // Center vertically over rowMax+1 rows. Newer = lower (negative Y).
+      const rowMid = rowMax / 2;
 
-            // Remove old mesh if exists
-            const meshKey = `${dayOfWeek}-${hour}`;
-            const oldMesh = weekMeshes[meshKey];
-            if (oldMesh) {
-              scene.remove(oldMesh);
-            }
+      // Shared opacity ceiling for both filled cells and stacked week layers
+      // so visual peaks line up across views (base opacity differs per view).
+      const MAX_OPACITY = 0.9;
 
-            // Create new mesh with updated intensity. Color blends from
-            // grid (low) to accent (mid) to highlight (peak) so the heatmap
-            // reads as accent-driven across all themes.
-            const geometry = new THREE.PlaneGeometry(0.4, 0.4);
-            const intensity = Math.min(totalCount / 10, 1);
-            const baseColor = new THREE.Color(COLOR_ACCENT);
-            const peakColor = new THREE.Color(COLOR_HIGHLIGHT);
-            const color = baseColor.clone().lerp(peakColor, intensity);
-            const material = new THREE.MeshBasicMaterial({
-              color,
-              side: THREE.DoubleSide,
-              transparent: true,
-              opacity: 0.6 + intensity * 0.4
-            });
-            const mesh = new THREE.Mesh(geometry, material);
+      const baseColor = new THREE.Color(COLOR_GRID);
+      const accentColor = new THREE.Color(COLOR_ACCENT);
+      const highlightColor = new THREE.Color(COLOR_HIGHLIGHT);
 
-            // Position: day of week (x), hour (y)
-            mesh.position.set(
-              dayOfWeek - 3,    // Center around 0 (Sun=0 to Sat=6)
-              hour - 12,         // Hours centered
-              currentWeekIndex * 0.1 // Slight z-offset for layering effect
-            );
-
-            scene.add(mesh);
-            weekMeshes[meshKey] = mesh;
+      // Empty cell ghost: faint grid plane for every (row, col) slot to give
+      // the calendar a frame even on inactive days.
+      for (let r = 0; r <= rowMax; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const ghostGeo = new THREE.PlaneGeometry(CELL_W, CELL_H);
+          const ghostMat = new THREE.MeshBasicMaterial({
+            color: COLOR_GRID,
+            transparent: true,
+            opacity: 0.12,
+            side: THREE.DoubleSide
           });
-        });
-
-        currentWeekIndex++;
-
-        // Continue animation
-        if (currentWeekIndex < weeks.length) {
-          setTimeout(addWeekLayer, 500); // Add next week after 500ms
+          const ghost = new THREE.Mesh(ghostGeo, ghostMat);
+          ghost.position.set(
+            (c - colMid) * STEP_X,
+            -(r - rowMid) * STEP_Y,
+            -0.01
+          );
+          scene.add(ghost);
         }
       }
 
-      // Start layering animation
-      addWeekLayer();
+      // Per-day cell + hour strip
+      // To keep draw calls sane, accumulate every hour line for every cell into
+      // a single LineSegments built from a shared BufferGeometry.
+      const stripPositions = [];
+      const stripColors = [];
 
-      camera.position.set(0, 0, 20);
+      placed.forEach((d) => {
+        const cx = (d.dayOfWeek - colMid) * STEP_X;
+        const cy = -(d.row - rowMid) * STEP_Y;
+
+        // Day-level density plane (day count -> color from grid->accent).
+        // 0-activity days fall through to the ghost grid alone — adding a
+        // dim fill plane on top would just dirty the empty look.
+        if (d.dayCount > 0) {
+          const intensity = d.dayCount / dayMax; // 0..1
+          const fillColor = baseColor.clone().lerp(accentColor, intensity);
+          const fillMat = new THREE.MeshBasicMaterial({
+            color: fillColor,
+            transparent: true,
+            // Base 0.55, ramp by intensity toward MAX_OPACITY (0.55 + 0.35).
+            opacity: 0.55 + intensity * (MAX_OPACITY - 0.55),
+            side: THREE.DoubleSide
+          });
+          const fillGeo = new THREE.PlaneGeometry(CELL_W, CELL_H);
+          const fill = new THREE.Mesh(fillGeo, fillMat);
+          fill.position.set(cx, cy, 0);
+          scene.add(fill);
+        }
+
+        // 24-hour strip on the right portion of the cell.
+        // Strip spans ~45% of cell width (right half-ish) and full cell height.
+        const STRIP_W = CELL_W * 0.45;
+        const cellRight = cx + CELL_W * 0.5;
+        const STRIP_LEFT = cellRight - STRIP_W - 0.05;
+        const STRIP_TOP = cy + (CELL_H * 0.4);
+        const STRIP_BOT = cy - (CELL_H * 0.4);
+        const STRIP_HEIGHT = STRIP_TOP - STRIP_BOT;
+        const HOUR_STEP = STRIP_W / 24;
+
+        // Per-day normalization: read "this day's hour-of-day skew", not the
+        // month-wide peak. With overall normalization an average day's strip
+        // would flatline whenever a single outlier day spiked.
+        const dayHourMax = Math.max(1, ...d.hours);
+
+        for (let h = 0; h < 24; h++) {
+          const count = d.hours[h];
+          if (count === 0) continue;
+          const hIntensity = Math.min(count / dayHourMax, 1);
+          const lineColor = accentColor.clone().lerp(highlightColor, hIntensity);
+          const lineX = STRIP_LEFT + (h + 0.5) * HOUR_STEP;
+          // Line height proportional to intensity (40%..100% of strip height).
+          const lineH = STRIP_HEIGHT * (0.4 + 0.6 * hIntensity);
+          const yMid = (STRIP_TOP + STRIP_BOT) / 2;
+          const yTop = yMid + lineH / 2;
+          const yBot = yMid - lineH / 2;
+
+          stripPositions.push(lineX, yBot, 0.02, lineX, yTop, 0.02);
+          stripColors.push(
+            lineColor.r, lineColor.g, lineColor.b,
+            lineColor.r, lineColor.g, lineColor.b
+          );
+        }
+      });
+
+      if (stripPositions.length > 0) {
+        const stripGeo = new THREE.BufferGeometry();
+        stripGeo.setAttribute(
+          'position',
+          new THREE.Float32BufferAttribute(stripPositions, 3)
+        );
+        stripGeo.setAttribute(
+          'color',
+          new THREE.Float32BufferAttribute(stripColors, 3)
+        );
+        const stripMat = new THREE.LineBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.9
+        });
+        const strip = new THREE.LineSegments(stripGeo, stripMat);
+        scene.add(strip);
+      }
+
+      // Static camera; aspect-ratio-friendly distance.
+      camera.position.set(0, 0, 12);
       camera.lookAt(0, 0, 0);
       animate();
     }
 
     /**
-     * Scene 3 (public: week): Weekly line graph (2D).
+     * Scene 3 (public: week): Weekly Overlay over a 7 x 24 grid.
+     *
+     * 週ごとの活動を半透明レイヤーとして 7×24 グリッドに累積させる。
+     * 同じ time slot に活動が重なるほどセルが濃くなり、繰り返し bias が
+     * 視覚的に立ち上がる。MVP の主役となる分析ビュー。
      */
     function renderScene3() {
       setupThreeJS();
 
-      const weekly = DATA.step3 || [];
-      const maxCount = Math.max(...weekly.map(w => w.count), 1);
+      const calendarData = DATA.step2 || {};
+      const weeksAll = calendarData.weeks || [];
 
-      // Draw line graph
-      const points = [];
-      weekly.forEach((day, index) => {
-        const x = index - 3; // Center at 0
-        const y = (day.count / maxCount) * 5 - 2.5;
-        points.push(new THREE.Vector3(x, y, 0));
+      // Cap the layered weeks. Invariant: visible-layers × interval < waitTime
+      // (12 weeks × 400ms = 4800ms < 5000ms wait in webp-generator.js).
+      // Older weeks are dropped so the screenshot always lands on a settled
+      // grid rather than mid-animation.
+      const MAX_WEEKS = 12;
+      const weeks = weeksAll.slice(-MAX_WEEKS);
+
+      // Layout: 7 (weekday) rows x 24 (hour) columns
+      // CELL/STEP sized so 24 cols × 7 rows fit inside the central ~60% of
+      // the 16:9 viewport at camera z=8.
+      const HOURS = 24;
+      const DAYS = 7;
+      const CELL_W = 0.45;
+      const CELL_H = 0.65;
+      const STEP_X = 0.5;
+      const STEP_Y = 0.7;
+
+      // Shared opacity ceiling with renderScene2 (base differs per view).
+      const MAX_OPACITY = 0.9;
+
+      // Pre-create 7×24 cell meshes with empty (ghost) state. We update
+      // their material color/opacity as weekly layers accumulate.
+      const cellMeshes = [];
+      const ghostColor = new THREE.Color(COLOR_GRID);
+      const accentColor = new THREE.Color(COLOR_ACCENT);
+      const highlightColor = new THREE.Color(COLOR_HIGHLIGHT);
+
+      for (let d = 0; d < DAYS; d++) {
+        cellMeshes.push([]);
+        for (let h = 0; h < HOURS; h++) {
+          const geo = new THREE.PlaneGeometry(CELL_W, CELL_H);
+          const mat = new THREE.MeshBasicMaterial({
+            color: ghostColor.clone(),
+            transparent: true,
+            opacity: 0.15,
+            side: THREE.DoubleSide
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(
+            (h - 11.5) * STEP_X,
+            (d - 3) * STEP_Y,
+            0
+          );
+          scene.add(mesh);
+          cellMeshes[d].push(mesh);
+        }
+      }
+
+      // Accumulator: each (dayOfWeek, hour) tracks total count across weeks.
+      const aggregated = Array.from({ length: DAYS }, () => new Array(HOURS).fill(0));
+
+      // Pre-compute the final max across all weeks so we can normalize against
+      // a fixed ceiling. Earlier per-frame normalization made already-painted
+      // peaks fade as new peaks emerged, which contradicted the "repeated
+      // slots grow denser as layers accumulate" acceptance criterion.
+      const finalAgg = Array.from({ length: DAYS }, () => new Array(HOURS).fill(0));
+      weeks.forEach((week) => {
+        week.forEach((day) => {
+          if (!day.hours) return;
+          for (let h = 0; h < HOURS; h++) {
+            const count = day.hours[h];
+            if (count > 0) finalAgg[day.dayOfWeek][h] += count;
+          }
+        });
       });
+      let finalMax = 0;
+      for (let d = 0; d < DAYS; d++) {
+        for (let h = 0; h < HOURS; h++) {
+          if (finalAgg[d][h] > finalMax) finalMax = finalAgg[d][h];
+        }
+      }
+      finalMax = Math.max(finalMax, 1);
 
-      // Create line
-      const geometry = new THREE.BufferGeometry().setFromPoints(points);
-      const material = new THREE.LineBasicMaterial({ color: COLOR_ACCENT, linewidth: 2 });
-      const line = new THREE.Line(geometry, material);
-      scene.add(line);
+      function applyCellState(d, h, intensity, hasData) {
+        const mesh = cellMeshes[d][h];
+        if (!hasData) {
+          mesh.material.color.copy(ghostColor);
+          mesh.material.opacity = 0.15;
+          return;
+        }
+        const color = accentColor.clone().lerp(highlightColor, intensity);
+        mesh.material.color.copy(color);
+        // Layered density: even a single hit is visible (0.4), peaks reach
+        // MAX_OPACITY (0.4 + 0.5).
+        mesh.material.opacity = 0.4 + intensity * (MAX_OPACITY - 0.4);
+      }
 
-      // Add points
-      points.forEach((point, index) => {
-        const dotGeometry = new THREE.SphereGeometry(0.15, 16, 16);
-        const dotMaterial = new THREE.MeshBasicMaterial({ color: COLOR_HIGHLIGHT });
-        const dot = new THREE.Mesh(dotGeometry, dotMaterial);
-        dot.position.copy(point);
-        scene.add(dot);
+      let weekIndex = 0;
+      function addWeekLayer() {
+        if (weekIndex >= weeks.length) return;
 
-        // Add label
-        // (In a real implementation, you'd use TextGeometry or sprites)
-      });
+        const week = weeks[weekIndex];
+        week.forEach((day) => {
+          const dayOfWeek = day.dayOfWeek;
+          const hours = day.hours;
+          for (let h = 0; h < HOURS; h++) {
+            if (hours[h] > 0) {
+              aggregated[dayOfWeek][h] += hours[h];
+            }
+          }
+        });
 
-      // Add axes
-      addAxes();
+        // Update every cell. Normalizing against finalMax means a slot's
+        // intensity only ever climbs as more weeks land — past peaks stay
+        // put when new peaks emerge.
+        for (let d = 0; d < DAYS; d++) {
+          for (let h = 0; h < HOURS; h++) {
+            const c = aggregated[d][h];
+            applyCellState(d, h, Math.min(c / finalMax, 1), c > 0);
+          }
+        }
 
-      camera.position.z = 10;
+        weekIndex++;
+        if (weekIndex < weeks.length) {
+          setTimeout(addWeekLayer, 400);
+        }
+      }
+
+      // Static camera; framing fits 24 cols (~12 wide) and 7 rows (~5 tall).
+      camera.position.set(0, 0, 8);
+      camera.lookAt(0, 0, 0);
+
+      if (weeks.length > 0) {
+        addWeekLayer();
+      } else {
+        console.warn('No weekly data available for week overlay');
+      }
+
       animate();
     }
 

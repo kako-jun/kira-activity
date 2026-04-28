@@ -70,12 +70,23 @@ API では色指定を `theme` の単語だけで済ませず、最終的には�
 - ただし GitHub 草の模倣にはせず、各日セル内に「時刻帯」を感じさせる
 - 3D から週次分析へ降りていく途中のブリッジ
 
+> **Phase 3 status:** 実装済み。直近 ~30 日（最大 6 週 × 7 列）を Sun..Sat
+> グリッドで配置し、各セルの濃度で日量、セル内右側の 24 本 vertical strip で
+> 時刻帯の偏りを表現。日量は `grid → accent` の lerp、時刻帯ストリップは
+> `accent → highlight` の lerp で色味が決まる。カメラは静止。
+
 ### 3. Weekly Overlay
 
 - 1週間の `7 x 24` 時間グリッドを、週ごとに半透明レイヤーとして重ねる
 - 同じ時間帯に活動が集まるほど濃度が上がる
 - このモードが最も `L が偏りを読む` 感覚に近い
 - MVP の主役はここ
+
+> **Phase 3 status:** 実装済み。`step2.weeks` の最新 12 週を 400ms 間隔で
+> 順に投入し、`aggregatedHours[7][24]` を更新するたび全セルの color/opacity
+> を再計算する。正規化は全週投入後の最終 max を pre-compute して固定値で
+> 行うため、累積で濃くなり続け、過去ピークが新ピーク登場で薄まらない。
+> `accent → highlight` の lerp で色、累積で透明度が上がる構造。
 
 ## Animation Direction
 
@@ -194,8 +205,8 @@ iframe 用 UI:
 
 1. 真の animated WebP 化
 2. ~~`kira` ビューを Kira Screen として再設計~~（Phase 2 完了: surface + wireframe + peak edge）
-3. `week` ビューを Weekly Overlay 主役の見た目に再設計
-4. `month` ビューを Month View として再定義
+3. ~~`week` ビューを Weekly Overlay 主役の見た目に再設計~~（Phase 3 完了: 7×24 累積オーバーレイ）
+4. ~~`month` ビューを Month View として再定義~~（Phase 3 完了: Sun..Sat カレンダー + per-cell 24h strip）
 
 ## Terminology
 

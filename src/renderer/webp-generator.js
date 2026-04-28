@@ -178,10 +178,16 @@ async function renderScene(processedData, scene, theme, size, palette) {
     await page.setContent(injectedHTML, { waitUntil: 'networkidle0' });
 
     // scene=1 (random list) is dev-only auxiliary and not reachable via
-    // VIEW_TO_SCENE, so it does not appear here. month (2) / kira (4) wait
-    // longer because their animations layer over time; week (3) is a static
-    // line graph and renders in one frame.
-    const waitTime = scene === 2 || scene === 4 ? 4000 : 1500;
+    // VIEW_TO_SCENE, so it does not appear here.
+    // - kira (4): rotating 3D surface, hold for the full carousel slot.
+    // - week (3): weekly overlay accumulates ~4-12 layers at 400ms each;
+    //   wait long enough for the cells to settle.
+    // - month (2): static-ish overview, only needs a moment to render.
+    const waitTime =
+      scene === 4 ? 4000 :
+      scene === 3 ? 5000 :
+      scene === 2 ? 2500 :
+      1500;
     await new Promise((resolve) => setTimeout(resolve, waitTime));
 
     const screenshot = await page.screenshot({
