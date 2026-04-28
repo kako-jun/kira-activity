@@ -109,11 +109,12 @@
       PARAMS.user + ' / ' + PARAMS.source + ' / ' + PARAMS.theme + ' / ' + PARAMS.size;
 
     const VIEWS = ['kira', 'month', 'week'];
-    // Per-view dwell time in ms. Kept in sync with webp-generator.js so the
-    // iframe carousel and the /api/graph animated WebP play at the same
-    // rhythm. kira (3D) sits 3s as the headline; month renders quickly so
-    // 2.5s is enough; week needs the full layering animation to read, so 5s.
-    const VIEW_DELAYS = [3000, 2500, 5000];
+    // Per-view dwell time in ms. Kept in sync with webp-generator.js waitTime
+    // so the iframe carousel and the /api/graph animated WebP play at the
+    // same rhythm. kira (3D) sits 4s as the headline; month renders quickly
+    // so 2.5s is enough; week needs the full layering animation to read, so
+    // 5s.
+    const VIEW_DELAYS = [4000, 2500, 5000];
     let current = PARAMS.view;
     let autoIndex = 0;
     let autoTimer = null;

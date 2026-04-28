@@ -206,8 +206,11 @@
       // Build day records and compute the calendar layout.
       // The first cell is placed under its weekday column (Sun=0..Sat=6),
       // earlier weekdays in the same starting week stay empty (no mesh).
+      // Parse "YYYY-MM-DD" as local-midnight so getDay()/diffDays line up with
+      // the user's wall-clock week (new Date(key) would be UTC and could shift).
       const days = recentKeys.map((key) => {
-        const date = new Date(key);
+        const [Y, M, D] = key.split('-').map(Number);
+        const date = new Date(Y, M - 1, D);
         const hours = full[key];
         const dayCount = hours.reduce((a, b) => a + b, 0);
         return { key, date, dayOfWeek: date.getDay(), hours, dayCount };
@@ -229,12 +232,10 @@
       });
 
       const dayMax = Math.max(1, ...placed.map((d) => d.dayCount));
-      const hourMaxOverall = Math.max(
-        1,
-        ...placed.flatMap((d) => d.hours)
-      );
 
       // Layout constants
+      // CELL/STEP sized so 7 cols × up to 6 rows (most-recent 42 days) fit
+      // inside the central ~60% of the 16:9 viewport at camera z=12.
       const CELL_W = 1.2;
       const CELL_H = 1.0;
       const COL_GAP = 0.15;
@@ -243,9 +244,14 @@
       const STEP_Y = CELL_H + ROW_GAP;
 
       // Center horizontally (Sun=col 0, Sat=col 6 -> centered around col 3).
-      const colMid = 3;
+      const COLS = 7;
+      const colMid = (COLS - 1) / 2;
       // Center vertically over rowMax+1 rows. Newer = lower (negative Y).
       const rowMid = rowMax / 2;
+
+      // Shared opacity ceiling for both filled cells and stacked week layers
+      // so visual peaks line up across views (base opacity differs per view).
+      const MAX_OPACITY = 0.9;
 
       const baseColor = new THREE.Color(COLOR_GRID);
       const accentColor = new THREE.Color(COLOR_ACCENT);
@@ -254,7 +260,7 @@
       // Empty cell ghost: faint grid plane for every (row, col) slot to give
       // the calendar a frame even on inactive days.
       for (let r = 0; r <= rowMax; r++) {
-        for (let c = 0; c < 7; c++) {
+        for (let c = 0; c < COLS; c++) {
           const ghostGeo = new THREE.PlaneGeometry(CELL_W, CELL_H);
           const ghostMat = new THREE.MeshBasicMaterial({
             color: COLOR_GRID,
@@ -282,33 +288,44 @@
         const cx = (d.dayOfWeek - colMid) * STEP_X;
         const cy = -(d.row - rowMid) * STEP_Y;
 
-        // Day-level density plane (day count -> color from grid->accent)
-        const intensity = d.dayCount / dayMax; // 0..1
-        const fillColor = baseColor.clone().lerp(accentColor, intensity);
-        const fillMat = new THREE.MeshBasicMaterial({
-          color: fillColor,
-          transparent: true,
-          opacity: d.dayCount === 0 ? 0.3 : 0.55 + intensity * 0.35,
-          side: THREE.DoubleSide
-        });
-        const fillGeo = new THREE.PlaneGeometry(CELL_W, CELL_H);
-        const fill = new THREE.Mesh(fillGeo, fillMat);
-        fill.position.set(cx, cy, 0);
-        scene.add(fill);
+        // Day-level density plane (day count -> color from grid->accent).
+        // 0-activity days fall through to the ghost grid alone — adding a
+        // dim fill plane on top would just dirty the empty look.
+        if (d.dayCount > 0) {
+          const intensity = d.dayCount / dayMax; // 0..1
+          const fillColor = baseColor.clone().lerp(accentColor, intensity);
+          const fillMat = new THREE.MeshBasicMaterial({
+            color: fillColor,
+            transparent: true,
+            // Base 0.55, ramp by intensity toward MAX_OPACITY (0.55 + 0.35).
+            opacity: 0.55 + intensity * (MAX_OPACITY - 0.55),
+            side: THREE.DoubleSide
+          });
+          const fillGeo = new THREE.PlaneGeometry(CELL_W, CELL_H);
+          const fill = new THREE.Mesh(fillGeo, fillMat);
+          fill.position.set(cx, cy, 0);
+          scene.add(fill);
+        }
 
         // 24-hour strip on the right portion of the cell.
-        // Strip spans 40% of cell width (right half-ish) and full cell height.
+        // Strip spans ~45% of cell width (right half-ish) and full cell height.
         const STRIP_W = CELL_W * 0.45;
-        const STRIP_LEFT = cx + (CELL_W * 0.5) - STRIP_W - 0.05;
+        const cellRight = cx + CELL_W * 0.5;
+        const STRIP_LEFT = cellRight - STRIP_W - 0.05;
         const STRIP_TOP = cy + (CELL_H * 0.4);
         const STRIP_BOT = cy - (CELL_H * 0.4);
         const STRIP_HEIGHT = STRIP_TOP - STRIP_BOT;
         const HOUR_STEP = STRIP_W / 24;
 
+        // Per-day normalization: read "this day's hour-of-day skew", not the
+        // month-wide peak. With overall normalization an average day's strip
+        // would flatline whenever a single outlier day spiked.
+        const dayHourMax = Math.max(1, ...d.hours);
+
         for (let h = 0; h < 24; h++) {
           const count = d.hours[h];
           if (count === 0) continue;
-          const hIntensity = Math.min(count / hourMaxOverall, 1);
+          const hIntensity = Math.min(count / dayHourMax, 1);
           const lineColor = accentColor.clone().lerp(highlightColor, hIntensity);
           const lineX = STRIP_LEFT + (h + 0.5) * HOUR_STEP;
           // Line height proportional to intensity (40%..100% of strip height).
@@ -361,15 +378,27 @@
       setupThreeJS();
 
       const calendarData = DATA.step2 || {};
-      const weeks = calendarData.weeks || [];
+      const weeksAll = calendarData.weeks || [];
+
+      // Cap the layered weeks. Invariant: visible-layers × interval < waitTime
+      // (12 weeks × 400ms = 4800ms < 5000ms wait in webp-generator.js).
+      // Older weeks are dropped so the screenshot always lands on a settled
+      // grid rather than mid-animation.
+      const MAX_WEEKS = 12;
+      const weeks = weeksAll.slice(-MAX_WEEKS);
 
       // Layout: 7 (weekday) rows x 24 (hour) columns
+      // CELL/STEP sized so 24 cols × 7 rows fit inside the central ~60% of
+      // the 16:9 viewport at camera z=8.
       const HOURS = 24;
       const DAYS = 7;
       const CELL_W = 0.45;
       const CELL_H = 0.65;
       const STEP_X = 0.5;
       const STEP_Y = 0.7;
+
+      // Shared opacity ceiling with renderScene2 (base differs per view).
+      const MAX_OPACITY = 0.9;
 
       // Pre-create 7×24 cell meshes with empty (ghost) state. We update
       // their material color/opacity as weekly layers accumulate.
@@ -402,12 +431,27 @@
       // Accumulator: each (dayOfWeek, hour) tracks total count across weeks.
       const aggregated = Array.from({ length: DAYS }, () => new Array(HOURS).fill(0));
 
-      // Normalization: use a soft cap so a few prolific slots don't make the
-      // rest invisible. Re-evaluated each week as totals grow.
-      function normalize(count, maxAcrossGrid) {
-        if (maxAcrossGrid <= 0) return 0;
-        return Math.min(count / maxAcrossGrid, 1);
+      // Pre-compute the final max across all weeks so we can normalize against
+      // a fixed ceiling. Earlier per-frame normalization made already-painted
+      // peaks fade as new peaks emerged, which contradicted the "repeated
+      // slots grow denser as layers accumulate" acceptance criterion.
+      const finalAgg = Array.from({ length: DAYS }, () => new Array(HOURS).fill(0));
+      weeks.forEach((week) => {
+        week.forEach((day) => {
+          if (!day.hours) return;
+          for (let h = 0; h < HOURS; h++) {
+            const count = day.hours[h];
+            if (count > 0) finalAgg[day.dayOfWeek][h] += count;
+          }
+        });
+      });
+      let finalMax = 0;
+      for (let d = 0; d < DAYS; d++) {
+        for (let h = 0; h < HOURS; h++) {
+          if (finalAgg[d][h] > finalMax) finalMax = finalAgg[d][h];
+        }
       }
+      finalMax = Math.max(finalMax, 1);
 
       function applyCellState(d, h, intensity, hasData) {
         const mesh = cellMeshes[d][h];
@@ -418,8 +462,9 @@
         }
         const color = accentColor.clone().lerp(highlightColor, intensity);
         mesh.material.color.copy(color);
-        // Layered density: even a single hit is visible (0.4), peaks reach ~0.9.
-        mesh.material.opacity = 0.4 + intensity * 0.5;
+        // Layered density: even a single hit is visible (0.4), peaks reach
+        // MAX_OPACITY (0.4 + 0.5).
+        mesh.material.opacity = 0.4 + intensity * (MAX_OPACITY - 0.4);
       }
 
       let weekIndex = 0;
@@ -437,19 +482,13 @@
           }
         });
 
-        // Recompute the per-frame max to normalize colors against current peak.
-        let maxAgg = 0;
-        for (let d = 0; d < DAYS; d++) {
-          for (let h = 0; h < HOURS; h++) {
-            if (aggregated[d][h] > maxAgg) maxAgg = aggregated[d][h];
-          }
-        }
-
-        // Update every cell so previously-bright slots adjust as new peaks emerge.
+        // Update every cell. Normalizing against finalMax means a slot's
+        // intensity only ever climbs as more weeks land — past peaks stay
+        // put when new peaks emerge.
         for (let d = 0; d < DAYS; d++) {
           for (let h = 0; h < HOURS; h++) {
             const c = aggregated[d][h];
-            applyCellState(d, h, normalize(c, maxAgg), c > 0);
+            applyCellState(d, h, Math.min(c / finalMax, 1), c > 0);
           }
         }
 

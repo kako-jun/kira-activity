@@ -82,10 +82,11 @@ API では色指定を `theme` の単語だけで済ませず、最終的には�
 - このモードが最も `L が偏りを読む` 感覚に近い
 - MVP の主役はここ
 
-> **Phase 3 status:** 実装済み。`step2.weeks` を 400ms 間隔で順に投入し、
-> `aggregatedHours[7][24]` を更新するたび全セルの color/opacity を再計算する
-> （新たなピークが出たときに過去のセルが暴走しないよう、その時点の最大値で
-> 正規化）。`accent → highlight` の lerp で色、累積で透明度が上がる構造。
+> **Phase 3 status:** 実装済み。`step2.weeks` の最新 12 週を 400ms 間隔で
+> 順に投入し、`aggregatedHours[7][24]` を更新するたび全セルの color/opacity
+> を再計算する。正規化は全週投入後の最終 max を pre-compute して固定値で
+> 行うため、累積で濃くなり続け、過去ピークが新ピーク登場で薄まらない。
+> `accent → highlight` の lerp で色、累積で透明度が上がる構造。
 
 ## Animation Direction
 
