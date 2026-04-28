@@ -102,6 +102,10 @@
       PARAMS.user + ' / ' + PARAMS.source + ' / ' + PARAMS.theme + ' / ' + PARAMS.size;
 
     const VIEWS = ['kira', 'month', 'week'];
+    // Per-view dwell time in ms. Kept in sync with webp-generator.js so the
+    // iframe carousel and the /api/graph animated WebP play at the same
+    // rhythm (kira sits longer because it is the headline view).
+    const VIEW_DELAYS = [3000, 1500, 1500];
     let current = PARAMS.view;
     let autoIndex = 0;
     let autoTimer = null;
@@ -114,13 +118,22 @@
       });
     }
 
+    function scheduleNext() {
+      autoTimer = setTimeout(() => {
+        autoIndex = (autoIndex + 1) % VIEWS.length;
+        setView(VIEWS[autoIndex]);
+        scheduleNext();
+      }, VIEW_DELAYS[autoIndex]);
+    }
+
     function startAuto() {
       autoIndex = 0;
       setView(VIEWS[autoIndex]);
-      autoTimer = setInterval(() => {
-        autoIndex = (autoIndex + 1) % VIEWS.length;
-        setView(VIEWS[autoIndex]);
-      }, 2000);
+      scheduleNext();
+    }
+
+    function stopAuto() {
+      if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
     }
 
     if (current === 'auto') {
@@ -132,7 +145,7 @@
     // Manual switch from carousel dots (Phase 0 stub)
     document.querySelectorAll('.dot').forEach((d) => {
       d.addEventListener('click', () => {
-        if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+        stopAuto();
         current = d.dataset.view;
         setView(current);
       });

@@ -15,7 +15,9 @@ const hatenaClient = new HatenaBookmarkClient();
 
 // Singleton browser instance for better performance
 let browserInstance = null;
-let htmlTemplate = null; // Cache HTML template
+
+// Eager load the renderer HTML template at module init.
+const HTML_TEMPLATE = readFileSync(join(__dirname, 'graph.html'), 'utf-8');
 
 /**
  * Internal mapping: public view names -> renderer scene number.
@@ -37,7 +39,7 @@ async function getBrowser() {
   if (!browserInstance || !browserInstance.isConnected()) {
     console.log('Launching browser instance...');
     browserInstance = await puppeteer.launch({
-      headless: 'new',
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -47,25 +49,11 @@ async function getBrowser() {
         '--disable-features=IsolateOrigins,site-per-process'
       ]
     });
-
-    process.on('exit', async () => {
-      if (browserInstance) {
-        await browserInstance.close();
-      }
-    });
+    // Note: SIGTERM/SIGINT shutdown is wired up in server.js, which awaits
+    // shutdown() before exiting. process.on('exit') cannot run async work,
+    // so we don't register it here.
   }
   return browserInstance;
-}
-
-/**
- * Get HTML template (cached)
- */
-function getHTMLTemplate() {
-  if (!htmlTemplate) {
-    const htmlPath = join(__dirname, 'graph.html');
-    htmlTemplate = readFileSync(htmlPath, 'utf-8');
-  }
-  return htmlTemplate;
 }
 
 /**
@@ -95,8 +83,7 @@ export async function generateAnimatedWebP(username, source, theme, size) {
   const renderTime = Date.now() - startTime;
   console.log(`Rendered ${frames.length} frames in ${renderTime}ms (parallel)`);
 
-  const delays = [3000, 1500, 1500];
-  const webpBuffer = await createAnimatedWebP(frames, delays);
+  const webpBuffer = await createWebPFromFrames(frames);
 
   console.log(`Generated animated WebP (${webpBuffer.length} bytes)`);
   return webpBuffer;
@@ -161,9 +148,7 @@ async function renderScene(processedData, scene, theme, size) {
     const dimensions = getSizeDimensions(size);
     await page.setViewport(dimensions);
 
-    const htmlContent = getHTMLTemplate();
-
-    const injectedHTML = htmlContent.replace(
+    const injectedHTML = HTML_TEMPLATE.replace(
       '</head>',
       `<script>
         window.ACTIVITY_DATA = ${JSON.stringify(processedData)};
@@ -190,11 +175,13 @@ async function renderScene(processedData, scene, theme, size) {
 }
 
 /**
- * Create animated WebP from frames (parallel conversion).
+ * Convert rendered frames into a single WebP (parallel conversion).
  * NOTE: sharp does not produce true animated WebP yet, so this returns
- * the last frame as a static WebP. True animation is tracked separately.
+ * the last frame as a static WebP. True animation is tracked separately
+ * (will require ffmpeg/libwebp), at which point per-frame delays will be
+ * reintroduced.
  */
-async function createAnimatedWebP(frames, delays) {
+async function createWebPFromFrames(frames) {
   const webpFrames = await Promise.all(
     frames.map((frame) =>
       sharp(frame)

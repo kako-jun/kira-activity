@@ -33,7 +33,11 @@
 
 API では色指定を `theme` の単語だけで済ませず、最終的には次のような層に分ける。
 
-- `theme`: `film`, `github`, `hatena`, `sepia`, `mono`
+> **Phase 0 status:** 現状の実装では `theme=deathnote` のみが有効。下記の
+> `film` / `github` / `hatena` / `sepia` / `mono` は将来追加予定の値であり、
+> 現時点で渡すと `400` が返る。
+
+- `theme`: `film`, `github`, `hatena`, `sepia`, `mono`（将来）
 - `accent`: 自動または明示指定
 - `background`: 自動または明示指定
 - `ink`: 文字と線の色
@@ -106,7 +110,7 @@ GitHub のプロフィール右上や README に貼る主戦場。
 
 - `user`
 - `source=github|hatena`
-- `theme=film|github|hatena|sepia|mono`
+- `theme=deathnote`（Phase 0 で実装済み。`film|github|hatena|sepia|mono` は将来追加予定）
 - `size=small|medium|large`
 - `mode=auto`
 - `loop=true`

@@ -204,7 +204,7 @@ For **high traffic** (> 100 req/min):
 
 ### 2. **WebAssembly for Data Processing**
 - Process large datasets faster
-- Potential 5-10x speedup for Step 3/4
+- Potential 5-10x speedup for kira / week views
 
 ### 3. **WebP Animation Support**
 - Currently returning static image (last frame only)

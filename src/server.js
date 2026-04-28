@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { generateAnimatedWebP, generateView } from './renderer/webp-generator.js';
+import { generateAnimatedWebP, generateView, shutdown as shutdownRenderer } from './renderer/webp-generator.js';
 import { CacheManager } from './services/cache.js';
 
 dotenv.config();
@@ -20,6 +20,9 @@ const VALID_SOURCES = new Set(['github', 'hatena']);
 const VALID_THEMES = new Set(['deathnote']);
 const VALID_SIZES = new Set(['small', 'medium', 'large']);
 const VALID_VIEWS = new Set(['kira', 'month', 'week', 'auto']);
+// GitHub username spec: 1-39 chars, alphanumerics and hyphens.
+// We accept underscore too for forward compatibility with hatena IDs.
+const USER_PATTERN = /^[A-Za-z0-9_-]{1,39}$/;
 
 function parseSharedParams(c) {
   const user = c.req.query('user');
@@ -30,6 +33,9 @@ function parseSharedParams(c) {
 
   if (!user) {
     return { error: 'user parameter is required' };
+  }
+  if (!USER_PATTERN.test(user)) {
+    return { error: 'invalid user: must match /^[A-Za-z0-9_-]{1,39}$/' };
   }
   if (!VALID_SOURCES.has(source)) {
     return { error: `invalid source: ${source}` };
@@ -47,13 +53,31 @@ function parseSharedParams(c) {
   return { user, source, theme, size, view };
 }
 
-let embedTemplate = null;
-function getEmbedTemplate() {
-  if (!embedTemplate) {
-    const htmlPath = join(__dirname, 'renderer', 'embed.html');
-    embedTemplate = readFileSync(htmlPath, 'utf-8');
-  }
-  return embedTemplate;
+// Eager load template at module init. Failing fast at startup is preferable
+// to lazily failing on the first request.
+const EMBED_TEMPLATE = readFileSync(join(__dirname, 'renderer', 'embed.html'), 'utf-8');
+
+/**
+ * Render the embed template by replacing __USER__ / __SOURCE__ / __THEME__ /
+ * __SIZE__ / __VIEW__ placeholders in a single pass. Each value is
+ * JSON-stringified and `<` is escaped to `<` so a payload like
+ * `?user=</script>...` cannot break out of the script context.
+ *
+ * Single-pass replacement also prevents placeholder collisions: a value such
+ * as `?user=zzz__VIEW__zzz` cannot accidentally inject into a later
+ * placeholder slot the way chained `.replace()` calls allowed.
+ */
+function renderEmbed(params) {
+  const map = {
+    USER: params.user,
+    SOURCE: params.source,
+    THEME: params.theme,
+    SIZE: params.size,
+    VIEW: params.view
+  };
+  return EMBED_TEMPLATE.replace(/__(USER|SOURCE|THEME|SIZE|VIEW)__/g, (_, k) =>
+    JSON.stringify(map[k]).replace(/</g, '\\u003c')
+  );
 }
 
 const app = new Hono();
@@ -73,13 +97,9 @@ app.get('/embed', (c) => {
     return c.json({ error: params.error }, 400);
   }
 
-  const html = getEmbedTemplate()
-    .replace('__USER__', JSON.stringify(params.user))
-    .replace('__SOURCE__', JSON.stringify(params.source))
-    .replace('__THEME__', JSON.stringify(params.theme))
-    .replace('__SIZE__', JSON.stringify(params.size))
-    .replace('__VIEW__', JSON.stringify(params.view));
+  const html = renderEmbed(params);
 
+  c.header('Cache-Control', 'public, max-age=3600');
   return c.html(html);
 });
 
@@ -178,7 +198,7 @@ app.get('/', (c) => {
         <option value="auto">auto (animated)</option>
         <option value="kira">kira (3D)</option>
         <option value="month">month (calendar)</option>
-        <option value="week">week (overlay)</option>
+        <option value="week">week (line)</option>
       </select>
       <button onclick="showEmbed()">Show /embed</button>
       <button onclick="showGraph()">Export /api/graph</button>
@@ -225,7 +245,23 @@ app.get('/', (c) => {
 </html>`);
 });
 
-serve({ fetch: app.fetch, port: PORT }, (info) => {
+const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`KIRA Activity Server running on http://localhost:${info.port}`);
   console.log(`L analysis mode: ACTIVE`);
 });
+
+async function gracefulShutdown(signal) {
+  console.log(`Received ${signal}, shutting down...`);
+  try {
+    await shutdownRenderer();
+  } catch (err) {
+    console.error('Error during renderer shutdown:', err);
+  }
+  if (server && typeof server.close === 'function') {
+    server.close();
+  }
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });
+process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
