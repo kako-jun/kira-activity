@@ -33,20 +33,22 @@
 
 API では色指定を `theme` の単語だけで済ませず、最終的には次のような層に分ける。
 
-> **Phase 0 status:** 現状の実装では `theme=deathnote` のみが有効。下記の
-> `film` / `github` / `hatena` / `sepia` / `mono` は将来追加予定の値であり、
-> 現時点で渡すと `400` が返る。
+> **Phase 1 status:** 5 テーマ（`film` / `github` / `hatena` / `sepia` / `mono`）を
+> 実装済み。デフォルトは `film`。`accent` の自動切り替えは `theme=film` のときだけ
+> `source` を見る形で動く（`source=github`→くすんだ緑、`source=hatena`→くすんだ青）。
+> 他のテーマはテーマ自身の配色を優先し、source による accent 切り替えは行わない。
+> 明示的な `accent` パラメータは Phase 1 では入れない（Phase 3 で再検討）。
 
-- `theme`: `film`, `github`, `hatena`, `sepia`, `mono`（将来）
-- `accent`: 自動または明示指定
-- `background`: 自動または明示指定
-- `ink`: 文字と線の色
+- `theme`: `film`, `github`, `hatena`, `sepia`, `mono`（実装済み・デフォルト `film`）
+- `accent`: `theme=film` のときのみ `source` で自動切り替え。明示指定は将来検討
+- `background`: theme で自動決定。明示指定は将来検討
+- `ink`: 文字と線の色。theme で自動決定
 
 例:
 
-- `/api/graph?user=kako-jun&source=github&theme=film`
-- `/api/graph?user=kako-jun&source=github&theme=github`
-- `/api/graph?user=kako-jun&source=hatena&theme=film&accent=%233a6ea5`
+- `/api/graph?user=kako-jun&source=github&theme=film` — film 配色 + GitHub 緑のアクセント
+- `/api/graph?user=kako-jun&source=github&theme=github` — GitHub 草配色（accent 固定）
+- `/api/graph?user=kako-jun&source=hatena&theme=film` — film 配色 + はてな青のアクセント
 
 ## Core Modes
 
@@ -110,7 +112,7 @@ GitHub のプロフィール右上や README に貼る主戦場。
 
 - `user`
 - `source=github|hatena`
-- `theme=deathnote`（Phase 0 で実装済み。`film|github|hatena|sepia|mono` は将来追加予定）
+- `theme=film|github|hatena|sepia|mono`（Phase 1 で実装済み、デフォルト `film`）
 - `size=small|medium|large`
 - `mode=auto`
 - `loop=true`
