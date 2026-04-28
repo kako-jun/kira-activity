@@ -6,7 +6,7 @@ This document describes the performance optimizations implemented in KIRA Activi
 
 | Metric | Before | After | Improvement |
 |--------|--------|-------|-------------|
-| Frame Generation (4 steps) | ~18s | ~4-6s | **3x faster** |
+| Frame Generation (3 views: kira/month/week) | ~18s | ~4-6s | **3x faster** |
 | Browser Startup per Request | 2-3s | 0s (reused) | **∞** |
 | Memory Usage | 500MB+ | 200-300MB | **40% less** |
 | Concurrent Requests | Blocked | Parallel | **Unlimited** |
@@ -45,23 +45,25 @@ async function getBrowser() {
 
 ### 2. Parallel Frame Rendering
 
-**Problem:** Rendering 4 frames sequentially wastes CPU time.
+**Problem:** Rendering frames sequentially wastes CPU time.
 
-**Solution:** Render all frames simultaneously using `Promise.all()`.
+**Solution:** Render all views simultaneously using `Promise.all()`.
 
 ```javascript
 // Before (slow - sequential)
-for (let step = 1; step <= 4; step++) {
-  frames.push(await renderStep(data, step)); // 4-5s each = 16-20s total
+for (const view of ['kira', 'month', 'week']) {
+  frames.push(await renderScene(data, VIEW_TO_SCENE[view], theme, size));
 }
 
 // After (fast - parallel)
 const frames = await Promise.all(
-  [1, 2, 3, 4].map(step => renderStep(data, step))
+  ['kira', 'month', 'week'].map((view) =>
+    renderScene(data, VIEW_TO_SCENE[view], theme, size)
+  )
 ); // ~5s total (limited by slowest frame)
 ```
 
-**Result:** **4x faster** (from 18s to 4.5s)
+**Result:** **3-4x faster** (from 18s to 4.5s)
 
 ---
 
@@ -136,7 +138,7 @@ bun run bun     # ~50ms startup (4x faster)
 - RAM: 16GB
 - OS: Ubuntu 22.04
 
-### Test Case: Generate 4 frames for GitHub user "torvalds"
+### Test Case: Generate kira/month/week frames for GitHub user "torvalds" via /api/graph?view=auto
 
 | Scenario | Node.js | Bun | Speedup |
 |----------|---------|-----|---------|
@@ -205,12 +207,12 @@ For **high traffic** (> 100 req/min):
 - Potential 5-10x speedup for Step 3/4
 
 ### 3. **WebP Animation Support**
-- Currently returning static image (Step 4 only)
+- Currently returning static image (last frame only)
 - True animation would be 4x smaller file size
 
 ### 4. **GPU Acceleration**
 - Use `--enable-gpu` for Three.js rendering
-- Potential 2-3x faster for Step 4 (3D rendering)
+- Potential 2-3x faster for the kira view (3D rendering)
 
 ### 5. **CDN + Edge Functions**
 - Deploy to Cloudflare Workers / Vercel Edge
