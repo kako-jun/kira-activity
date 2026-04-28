@@ -148,12 +148,14 @@ async function renderScene(processedData, scene, theme, size) {
     const dimensions = getSizeDimensions(size);
     await page.setViewport(dimensions);
 
+    const safeData = JSON.stringify(processedData).replace(/</g, '\\u003c');
+    const safeTheme = JSON.stringify(theme).replace(/</g, '\\u003c');
     const injectedHTML = HTML_TEMPLATE.replace(
       '</head>',
       `<script>
-        window.ACTIVITY_DATA = ${JSON.stringify(processedData)};
+        window.ACTIVITY_DATA = ${safeData};
         window.RENDER_SCENE = ${scene};
-        window.RENDER_THEME = ${JSON.stringify(theme)};
+        window.RENDER_THEME = ${safeTheme};
       </script></head>`
     );
 
