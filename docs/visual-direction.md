@@ -31,9 +31,13 @@
 
 ### Parameterized palette
 
-API では色指定を `style` の単語だけで済ませず、最終的には次のような層に分ける。
+API では色指定を `theme` の単語だけで済ませず、最終的には次のような層に分ける。
 
-- `theme`: `film`, `github`, `hatena`, `sepia`, `mono`
+> **Phase 0 status:** 現状の実装では `theme=deathnote` のみが有効。下記の
+> `film` / `github` / `hatena` / `sepia` / `mono` は将来追加予定の値であり、
+> 現時点で渡すと `400` が返る。
+
+- `theme`: `film`, `github`, `hatena`, `sepia`, `mono`（将来）
 - `accent`: 自動または明示指定
 - `background`: 自動または明示指定
 - `ink`: 文字と線の色
@@ -106,7 +110,7 @@ GitHub のプロフィール右上や README に貼る主戦場。
 
 - `user`
 - `source=github|hatena`
-- `theme=film|github|hatena|sepia|mono`
+- `theme=deathnote`（Phase 0 で実装済み。`film|github|hatena|sepia|mono` は将来追加予定）
 - `size=small|medium|large`
 - `mode=auto`
 - `loop=true`
@@ -116,9 +120,11 @@ GitHub のプロフィール右上や README に貼る主戦場。
 - `Hono` on Cloudflare Workers
 - キャプチャや重い生成が Worker 単体で厳しい場合は、Cloudflare 前段 + 別生成ワーカーの分離を検討する
 
-### B. Frame API
+### B. Single-view export
 
-- Endpoint: `/api/frame`
+`/api/frame` は廃止。単一ビューが必要な場合は `/api/graph` に `view` を渡す。
+
+- Endpoint: `/api/graph?view=kira|month|week`
 - Return: `image/webp`
 - 単一状態を返す
 
@@ -180,19 +186,21 @@ iframe 用 UI:
 優先順位:
 
 1. 真の animated WebP 化
-2. `step4` を Kira Screen に再設計
-3. `step2` を Weekly Overlay 主役の見た目に再設計
-4. `step3` を Month View として再定義
+2. `kira` ビューを Kira Screen として再設計
+3. `week` ビューを Weekly Overlay 主役の見た目に再設計
+4. `month` ビューを Month View として再定義
 
 ## Terminology
 
-内部の `step1..step4` は実装都合の番号であり、UI/仕様では次の語を使う。
+公開仕様（ルート、クエリ、ドキュメント）では次の語を使う。
 
 - `kira`
 - `month`
 - `week`
+- `auto`
 
-`random list` は開発中の補助演出に留め、本番の主ループから外してよい。
+内部の `step1..step4` / `scene1..scene4` は data-processor のキーや graph.html の関数名に
+残るが、外には出さない。`random list`（旧 step1）は開発時の補助演出に留め、本番ループからは外す。
 
 ## Non-Goals
 

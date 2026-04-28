@@ -1,13 +1,16 @@
 # KIRA Activity
 
-Death Note L風のアクティビティ可視化ウィジェット。GitHubやはてなブックマークの活動パターンをアニメーションで表示。
+Death Note L 風のアクティビティ可視化ウィジェット。GitHub やはてなブックマークの活動パターンを iframe または animated WebP で表示する。
 
-## 特徴
+## アーキテクチャ
 
-- 4段階の可視化（ランダム→カレンダー→週次グラフ→3D）
-- Death Note風デザイン（黒背景、緑文字、赤アクセント）
-- WebP画像出力（GitHub READMEに埋め込み可能）
-- GitHub / はてなブックマーク対応
+`/embed` を**正本のレンダラー**とし、`/api/graph` はその上に乗る WebP エクスポート層。同じクエリ仕様を両方で共有する。
+
+```
+/embed  ──── canonical renderer (HTML, iframe 用)
+   │
+   └─ /api/graph ──── /embed?view=auto を WebP として書き出すエクスポート層
+```
 
 ## 使い方
 
@@ -16,34 +19,63 @@ git clone https://github.com/kako-jun/kira-activity.git
 cd kira-activity
 npm install
 cp .env.example .env
-# .envにGITHUB_TOKENを設定（推奨）
+# .env に GITHUB_TOKEN を設定（推奨）
 npm start
 ```
 
-### 画像の埋め込み
+### iframe で埋め込む
 
-```markdown
-![Activity](http://localhost:3000/api/graph?user=YOUR_USERNAME)
+```html
+<iframe src="https://example.com/embed?user=YOUR_USERNAME"></iframe>
 ```
 
-### API
+### README に画像として貼る
 
-- `GET /api/graph?user=xxx` - アニメーション生成
-- `GET /api/frame?user=xxx&step=4` - 特定ステップの静止画
-- `GET /health` - ヘルスチェック
+```markdown
+![Activity](https://example.com/api/graph?user=YOUR_USERNAME)
+```
 
-### パラメータ
+## エンドポイント
 
-- `user`: ユーザー名（必須）
-- `source`: `github`（デフォルト）または `hatena`
-- `step`: 1〜4（frameのみ）
-- `size`: `small` / `medium` / `large`
+- `GET /embed` — 正本レンダラー（HTML を返す）
+- `GET /api/graph` — `/embed` の WebP エクスポート
+- `GET /health` — ヘルスチェック
+
+## 共有クエリパラメータ
+
+`/embed` と `/api/graph` で同じクエリ仕様を使う。
+
+| パラメータ | 値 | デフォルト | 説明 |
+|---|---|---|---|
+| `user` | string | （必須） | ユーザー名 |
+| `source` | `github` / `hatena` | `github` | データソース |
+| `theme` | `deathnote` | `deathnote` | 配色テーマ |
+| `size` | `small` / `medium` / `large` | `medium` | ビューポートサイズ |
+| `view` | `kira` / `month` / `week` / `auto` | `auto` | 表示モード |
+
+### ビュー
+
+- `kira` — 曜日 × 時刻 × 活動量の 3D 表示
+- `month` — 1か月のカレンダーヒートマップ
+- `week` — 曜日別の週次 2D 折れ線グラフ（Phase 2 で 7 × 24 オーバーレイに置換予定）
+- `auto` — 上記を順に再生するアニメーション（`/api/graph` のデフォルト挙動）
+
+## 使用例
+
+- `/embed?user=torvalds` — auto 再生する iframe
+- `/embed?user=torvalds&view=kira` — kira 固定の iframe
+- `/api/graph?user=torvalds` — auto をアニメ WebP として書き出し
+- `/api/graph?user=torvalds&view=week&theme=deathnote&size=large` — 単一ビューの WebP
 
 ## 技術スタック
 
-- Node.js / Bun + Express
+- Node.js / Bun + Hono (`@hono/node-server`)
 - Puppeteer + Three.js
 - Sharp
+
+## デプロイ
+
+最終的なホスティング先は **Cloudflare** を想定。Hono 採用により Cloudflare Workers / Pages への移行は容易だが、Phase 0 時点では Puppeteer に依存するため `@hono/node-server` で Node ランタイムを使う。Workers 化は別フェーズで検討する。
 
 ## ライセンス
 
