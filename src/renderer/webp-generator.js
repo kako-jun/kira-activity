@@ -18,11 +18,24 @@ let browserInstance = null;
 let htmlTemplate = null; // Cache HTML template
 
 /**
+ * Internal mapping: public view names -> renderer scene number.
+ * The graph.html renderer still uses numeric scene IDs internally;
+ * this is the only place where the public/internal vocabulary meets.
+ */
+const VIEW_TO_SCENE = {
+  kira: 4,
+  month: 2,
+  week: 3
+};
+
+const ALL_VIEWS = ['kira', 'month', 'week'];
+
+/**
  * Get or create browser instance (singleton pattern)
  */
 async function getBrowser() {
   if (!browserInstance || !browserInstance.isConnected()) {
-    console.log('🚀 Launching browser instance...');
+    console.log('Launching browser instance...');
     browserInstance = await puppeteer.launch({
       headless: 'new',
       args: [
@@ -30,12 +43,11 @@ async function getBrowser() {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--disable-web-security', // Faster rendering
+        '--disable-web-security',
         '--disable-features=IsolateOrigins,site-per-process'
       ]
     });
 
-    // Cleanup on process exit
     process.on('exit', async () => {
       if (browserInstance) {
         await browserInstance.close();
@@ -57,64 +69,68 @@ function getHTMLTemplate() {
 }
 
 /**
- * Generate animated WebP showing all 4 steps (OPTIMIZED - parallel rendering)
+ * Generate animated WebP cycling through kira -> month -> week.
+ * Used by /api/graph?view=auto (the canonical export of /embed).
+ *
  * @param {string} username - Username (GitHub or Hatena)
  * @param {string} source - 'github' or 'hatena'
- * @param {string} style - Visualization style
- * @param {string} size - 'small', 'medium', 'large'
+ * @param {string} theme - Visualization theme (e.g. 'deathnote')
+ * @param {string} size - 'small' | 'medium' | 'large'
  * @returns {Promise<Buffer>} WebP buffer
  */
-export async function generateAnimatedWebP(username, source, style, size) {
-  console.log(`🎬 Generating animated WebP for ${username} (${source})...`);
+export async function generateAnimatedWebP(username, source, theme, size) {
+  console.log(`Generating animated WebP for ${username} (${source}, theme=${theme})...`);
 
-  // Fetch activity data
   const activityData = await fetchActivityData(username, source);
   const processedData = DataProcessor.process(activityData);
 
-  // OPTIMIZATION: Generate all 4 frames in parallel
-  console.log('⚡ Rendering all 4 steps in parallel...');
+  console.log('Rendering all views in parallel...');
   const startTime = Date.now();
 
-  const framePromises = [1, 2, 3, 4].map(step =>
-    renderStep(processedData, step, style, size)
+  const framePromises = ALL_VIEWS.map((view) =>
+    renderScene(processedData, VIEW_TO_SCENE[view], theme, size)
   );
 
   const frames = await Promise.all(framePromises);
   const renderTime = Date.now() - startTime;
-  console.log(`✅ Rendered 4 frames in ${renderTime}ms (parallel)`);
+  console.log(`Rendered ${frames.length} frames in ${renderTime}ms (parallel)`);
 
-  // Create animated WebP
-  const delays = [1500, 1500, 1500, 3000]; // ms per frame
+  const delays = [3000, 1500, 1500];
   const webpBuffer = await createAnimatedWebP(frames, delays);
 
-  console.log(`✅ Generated animated WebP (${webpBuffer.length} bytes)`);
+  console.log(`Generated animated WebP (${webpBuffer.length} bytes)`);
   return webpBuffer;
 }
 
 /**
- * Generate single frame for specific step
- * @param {string} username - Username
- * @param {string} source - 'github' or 'hatena'
- * @param {number} step - Step number (1-4)
- * @param {string} style - Visualization style
+ * Generate a single-view WebP export.
+ * Used by /api/graph?view=kira|month|week.
+ *
+ * @param {string} username
+ * @param {string} source - 'github' | 'hatena'
+ * @param {'kira'|'month'|'week'} view
+ * @param {string} theme
+ * @param {string} size
  * @returns {Promise<Buffer>} WebP buffer
  */
-export async function generateFrame(username, source, step, style) {
-  console.log(`📸 Generating frame ${step} for ${username} (${source})...`);
+export async function generateView(username, source, view, theme, size) {
+  const scene = VIEW_TO_SCENE[view];
+  if (!scene) {
+    throw new Error(`Unknown view: ${view}`);
+  }
 
-  // Fetch activity data
+  console.log(`Generating view '${view}' for ${username} (${source})...`);
+
   const activityData = await fetchActivityData(username, source);
   const processedData = DataProcessor.process(activityData);
 
-  // Render the specific step
-  const frame = await renderStep(processedData, step, style, 'medium');
+  const frame = await renderScene(processedData, scene, theme, size);
 
-  // Convert to WebP
   const webpBuffer = await sharp(frame)
     .webp({ quality: 90 })
     .toBuffer();
 
-  console.log(`✅ Generated frame ${step} (${webpBuffer.length} bytes)`);
+  console.log(`Generated view '${view}' (${webpBuffer.length} bytes)`);
   return webpBuffer;
 }
 
@@ -122,7 +138,7 @@ export async function generateFrame(username, source, step, style) {
  * Fetch activity data from source
  */
 async function fetchActivityData(username, source) {
-  console.log(`📡 Fetching ${source} data for ${username}...`);
+  console.log(`Fetching ${source} data for ${username}...`);
 
   if (source === 'github') {
     return await githubClient.getComprehensiveActivity(username);
@@ -134,68 +150,61 @@ async function fetchActivityData(username, source) {
 }
 
 /**
- * Render a specific step using Puppeteer (OPTIMIZED - reuses browser)
+ * Render a specific scene using Puppeteer (reuses browser).
+ * Internal `scene` is a numeric scene ID consumed by graph.html.
  */
-async function renderStep(processedData, step, style, size) {
-  const browser = await getBrowser(); // Reuse browser instance
+async function renderScene(processedData, scene, theme, size) {
+  const browser = await getBrowser();
   const page = await browser.newPage();
 
   try {
-    // Set viewport size based on size parameter
     const dimensions = getSizeDimensions(size);
     await page.setViewport(dimensions);
 
-    // Load cached HTML template
     const htmlContent = getHTMLTemplate();
 
-    // Inject data and configuration
     const injectedHTML = htmlContent.replace(
       '</head>',
       `<script>
         window.ACTIVITY_DATA = ${JSON.stringify(processedData)};
-        window.RENDER_STEP = ${step};
-        window.RENDER_STYLE = '${style}';
+        window.RENDER_SCENE = ${scene};
+        window.RENDER_THEME = ${JSON.stringify(theme)};
       </script></head>`
     );
 
     await page.setContent(injectedHTML, { waitUntil: 'networkidle0' });
 
-    // Wait for rendering (optimized timing)
-    const waitTime = step === 1 ? 2500 : (step === 2 ? 4000 : (step === 4 ? 4000 : 1500));
-    await new Promise(resolve => setTimeout(resolve, waitTime));
+    const waitTime = scene === 1 ? 2500 : (scene === 2 ? 4000 : (scene === 4 ? 4000 : 1500));
+    await new Promise((resolve) => setTimeout(resolve, waitTime));
 
-    // Take screenshot
     const screenshot = await page.screenshot({
       type: 'png',
       fullPage: false,
-      captureBeyondViewport: false // Optimization
+      captureBeyondViewport: false
     });
 
     return screenshot;
   } finally {
-    await page.close(); // Close page, but keep browser alive
+    await page.close();
   }
 }
 
 /**
- * Create animated WebP from frames (OPTIMIZED - parallel conversion)
+ * Create animated WebP from frames (parallel conversion).
+ * NOTE: sharp does not produce true animated WebP yet, so this returns
+ * the last frame as a static WebP. True animation is tracked separately.
  */
 async function createAnimatedWebP(frames, delays) {
-  // OPTIMIZATION: Convert all frames to WebP in parallel
   const webpFrames = await Promise.all(
-    frames.map((frame, index) =>
+    frames.map((frame) =>
       sharp(frame)
-        .webp({ quality: 80, effort: 4 }) // effort: 4 is balanced (0-6 range)
+        .webp({ quality: 80, effort: 4 })
         .toBuffer()
     )
   );
 
-  // sharp doesn't support animated WebP directly, so we'll use the first approach:
-  // Return the last frame (Step 4) as a static image for now
-  // TODO: Implement proper animated WebP using ffmpeg or libwebp
-  console.log('⚠️  Note: Returning static WebP (last frame). Animated WebP requires ffmpeg.');
-
-  return webpFrames[webpFrames.length - 1]; // Return step 4 for now
+  console.log('Note: returning last frame as static WebP. True animated WebP requires ffmpeg/libwebp.');
+  return webpFrames[webpFrames.length - 1];
 }
 
 /**
@@ -209,7 +218,7 @@ function getSizeDimensions(size) {
       return { width: 1600, height: 900 };
     case 'medium':
     default:
-      return { width: 1200, height: 630 }; // GitHub social preview size
+      return { width: 1200, height: 630 };
   }
 }
 
@@ -218,7 +227,7 @@ function getSizeDimensions(size) {
  */
 export async function shutdown() {
   if (browserInstance) {
-    console.log('🛑 Shutting down browser...');
+    console.log('Shutting down browser...');
     await browserInstance.close();
     browserInstance = null;
   }

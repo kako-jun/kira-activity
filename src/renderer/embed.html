@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KIRA Activity - Embed</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; }
+    body {
+      background: #000;
+      color: #ccc;
+      font-family: 'Courier New', monospace;
+      overflow: hidden;
+    }
+    #stage {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    #header {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      color: #888;
+      z-index: 10;
+    }
+    #header strong { color: #f44; }
+    #panel {
+      width: 80%;
+      max-width: 720px;
+      aspect-ratio: 16 / 9;
+      border: 1px solid #333;
+      background: #0a0a0a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 24px;
+      text-align: center;
+    }
+    #title { color: #f44; font-size: 18px; letter-spacing: 0.15em; }
+    #subtitle { color: #888; font-size: 13px; }
+    #view-label {
+      color: #4f4;
+      font-size: 28px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+    #note { color: #555; font-size: 11px; margin-top: 8px; }
+    #carousel {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 10;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #333;
+      transition: background 0.2s;
+    }
+    .dot.active { background: #f44; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <div id="header">KIRA <strong>ACTIVITY</strong></div>
+    <div id="panel">
+      <div id="title">ANALYZING PATTERN</div>
+      <div id="subtitle" data-field="subtitle">user / source</div>
+      <div id="view-label" data-field="view">AUTO</div>
+      <div id="note">Phase 0 placeholder. Full visualization arrives in Phase 2.</div>
+    </div>
+    <div id="carousel">
+      <div class="dot" data-view="kira"></div>
+      <div class="dot" data-view="month"></div>
+      <div class="dot" data-view="week"></div>
+    </div>
+  </div>
+
+  <script>
+    // Server-injected params (placeholders replaced at request time).
+    const PARAMS = {
+      user: __USER__,
+      source: __SOURCE__,
+      theme: __THEME__,
+      size: __SIZE__,
+      view: __VIEW__
+    };
+
+    document.querySelector('[data-field="subtitle"]').textContent =
+      PARAMS.user + ' / ' + PARAMS.source + ' / ' + PARAMS.theme + ' / ' + PARAMS.size;
+
+    const VIEWS = ['kira', 'month', 'week'];
+    let current = PARAMS.view;
+    let autoIndex = 0;
+    let autoTimer = null;
+
+    function setView(v) {
+      const label = document.querySelector('[data-field="view"]');
+      label.textContent = v.toUpperCase();
+      document.querySelectorAll('.dot').forEach((d) => {
+        d.classList.toggle('active', d.dataset.view === v);
+      });
+    }
+
+    function startAuto() {
+      autoIndex = 0;
+      setView(VIEWS[autoIndex]);
+      autoTimer = setInterval(() => {
+        autoIndex = (autoIndex + 1) % VIEWS.length;
+        setView(VIEWS[autoIndex]);
+      }, 2000);
+    }
+
+    if (current === 'auto') {
+      startAuto();
+    } else {
+      setView(current);
+    }
+
+    // Manual switch from carousel dots (Phase 0 stub)
+    document.querySelectorAll('.dot').forEach((d) => {
+      d.addEventListener('click', () => {
+        if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+        current = d.dataset.view;
+        setView(current);
+      });
+    });
+  </script>
+</body>
+</html>

@@ -95,8 +95,10 @@
   <script>
     // Data will be injected by the server
     const DATA = window.ACTIVITY_DATA || {};
-    const STEP = window.RENDER_STEP || 4;
-    const STYLE = window.RENDER_STYLE || 'deathnote';
+    // Internal numeric scene ID (1=random list, 2=month, 3=week, 4=kira/3D).
+    // Public view names (kira/month/week) are mapped to these IDs in the server.
+    const SCENE = window.RENDER_SCENE || 4;
+    const THEME = window.RENDER_THEME || 'deathnote';
 
     // Global variables
     let scene, camera, renderer;
@@ -104,30 +106,30 @@
 
     // Initialize
     function init() {
-      console.log('Initializing visualization...', { STEP, STYLE });
+      console.log('Initializing visualization...', { SCENE, THEME });
 
-      switch (STEP) {
+      switch (SCENE) {
         case 1:
-          renderStep1();
+          renderScene1();
           break;
         case 2:
-          renderStep2();
+          renderScene2();
           break;
         case 3:
-          renderStep3();
+          renderScene3();
           break;
         case 4:
-          renderStep4();
+          renderScene4();
           break;
         default:
-          renderStep4();
+          renderScene4();
       }
     }
 
     /**
-     * Step 1: Random list of activities (chaotic)
+     * Scene 1: Random list of activities (chaotic, dev-only auxiliary scene)
      */
-    function renderStep1() {
+    function renderScene1() {
       const content = document.getElementById('content');
       content.className = 'random-list';
 
@@ -148,10 +150,10 @@
     }
 
     /**
-     * Step 2: Calendar view with layering animation
-     * Weeks stack on top of each other, heatmap intensifies
+     * Scene 2 (public: month): Calendar view with layering animation.
+     * Weeks stack on top of each other, heatmap intensifies.
      */
-    function renderStep2() {
+    function renderScene2() {
       setupThreeJS();
 
       const calendarData = DATA.step2 || {};
@@ -235,9 +237,9 @@
     }
 
     /**
-     * Step 3: Weekly line graph (2D)
+     * Scene 3 (public: week): Weekly line graph (2D).
      */
-    function renderStep3() {
+    function renderScene3() {
       setupThreeJS();
 
       const weekly = DATA.step3 || [];
@@ -277,9 +279,9 @@
     }
 
     /**
-     * Step 4: 3D line graph (day × hour × count)
+     * Scene 4 (public: kira): 3D line graph (day x hour x count).
      */
-    function renderStep4() {
+    function renderScene4() {
       setupThreeJS();
 
       const grid = DATA.step4 || [];
