@@ -122,8 +122,9 @@
       return parseInt(h.slice(1), 16);
     }
     // ink は CSS variable 側で `.info` 等のテキストに適用される。
-    // Three.js scene では使わないので int 化はしない。
+    // scene 4 (kira) のサーフェスでも MeshStandardMaterial の base color として使う。
     const COLOR_BG = hexToInt(PALETTE.background);
+    const COLOR_INK = hexToInt(PALETTE.ink);
     const COLOR_GRID = hexToInt(PALETTE.grid);
     const COLOR_ACCENT = hexToInt(PALETTE.accent);
     const COLOR_HIGHLIGHT = hexToInt(PALETTE.highlight);
@@ -311,69 +312,130 @@
     }
 
     /**
-     * Scene 4 (public: kira): 3D line graph (day x hour x count).
+     * Scene 4 (public: kira): Surveillance-analysis surface.
+     *
+     * weekday (Z) x hour (X) x activity (Y) を、半透明のハイトフィールド
+     * サーフェス + ワイヤーフレーム + ピーク強調の発光垂線で表現する。
+     * ベースの bar/line ではなく「分析画面」のニュアンスを優先。
      */
     function renderScene4() {
       setupThreeJS();
 
+      // MeshStandardMaterial を使うために光源が必要。scene 1/2/3 は
+      // setupThreeJS のみで light を持たないため、ここで scene 4 専用に
+      // 追加する（影響範囲を局所化）。
+      // setupThreeJS() で scene を毎回新規生成するため、light が累積する心配はない
+      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+      dirLight.position.set(10, 20, 10);
+      scene.add(dirLight);
+
       const grid = DATA.step4 || [];
-      const maxCount = Math.max(...grid.map(g => g.count), 1);
+      const maxCount = Math.max(...grid.map(c => c.count), 1);
 
-      // Group by day to create 7 line graphs
-      const dayGroups = {};
-      grid.forEach(cell => {
-        if (!dayGroups[cell.dayIndex]) {
-          dayGroups[cell.dayIndex] = [];
+      // 7 (weekday) x 24 (hour) のハイトマップを構築
+      const heightMap = Array.from({ length: 7 }, () => new Array(24).fill(0));
+      grid.forEach(c => {
+        if (c.dayIndex >= 0 && c.dayIndex < 7 && c.hour >= 0 && c.hour < 24) {
+          heightMap[c.dayIndex][c.hour] = (c.count / maxCount) * 5;
         }
-        dayGroups[cell.dayIndex].push(cell);
       });
 
-      // Draw line for each day
-      Object.keys(dayGroups).forEach(dayIndex => {
-        const dayCells = dayGroups[dayIndex].sort((a, b) => a.hour - b.hour);
-        const points = [];
+      // ベースのサーフェス: 24 hour x 7 day 分の頂点を持つ Plane
+      // PlaneGeometry(width, height, widthSegments, heightSegments)
+      // → widthSegments+1 × heightSegments+1 = 24 × 7 個の頂点
+      // dayIndex 0=Sunday は world Z=-3 (奥)、6=Saturday は world Z=+3 (手前)。
+      // 自動回転するため特定の曜日が常に奥/手前になる懸念はない。
+      const PLANE_WIDTH = 23;  // 24 hours -> 23 segments
+      const PLANE_DEPTH = 6;   // 7 days   -> 6 segments
+      const HOURS_SEG = 23;
+      const DAYS_SEG = 6;
+      const planeGeo = new THREE.PlaneGeometry(PLANE_WIDTH, PLANE_DEPTH, HOURS_SEG, DAYS_SEG);
+      const positions = planeGeo.attributes.position;
+      // PlaneGeometry はデフォルトで XY 平面に展開される。Z 軸方向に
+      // displace してから後で X 軸まわりに -90deg 回転して水平に倒す。
+      // 頂点は row-major: index = row * (widthSegments+1) + col
+      for (let z = 0; z < 7; z++) {
+        for (let x = 0; x < 24; x++) {
+          const idx = z * 24 + x;
+          positions.setZ(idx, heightMap[z][x]);
+        }
+      }
+      positions.needsUpdate = true;
+      planeGeo.computeVertexNormals();
 
-        dayCells.forEach(cell => {
-          const x = cell.hour - 12; // Hours (-12 to +12)
-          const y = (cell.count / maxCount) * 5; // Height
-          const z = parseInt(dayIndex) - 3; // Days (-3 to +3)
-          points.push(new THREE.Vector3(x, y, z));
-        });
+      const surfaceMat = new THREE.MeshStandardMaterial({
+        color: COLOR_INK,
+        flatShading: true,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.7,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1
+      });
+      const surface = new THREE.Mesh(planeGeo, surfaceMat);
+      surface.rotation.x = -Math.PI / 2;
+      scene.add(surface);
 
-        // Create line — accent for the bulk of the geometry,
-        // highlight for the peak dots. Per-day chroma variation is a
-        // Phase 2/3 refinement; Phase 1 keeps the palette honest.
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const material = new THREE.LineBasicMaterial({ color: COLOR_ACCENT, linewidth: 2 });
-        const line = new THREE.Line(geometry, material);
-        scene.add(line);
+      // サーフェス上のワイヤーフレーム（同じ geometry に重ねる）
+      const wireGeo = new THREE.WireframeGeometry(planeGeo);
+      const wireMat = new THREE.LineBasicMaterial({
+        color: COLOR_GRID,
+        transparent: true,
+        opacity: 0.6
+      });
+      const wire = new THREE.LineSegments(wireGeo, wireMat);
+      wire.rotation.x = -Math.PI / 2;
+      scene.add(wire);
 
-        // Add dots at peaks
-        points.forEach((point, index) => {
-          if (dayCells[index].count > 0) {
-            const dotGeometry = new THREE.SphereGeometry(0.1, 8, 8);
-            const dotMaterial = new THREE.MeshBasicMaterial({ color: COLOR_HIGHLIGHT });
-            const dot = new THREE.Mesh(dotGeometry, dotMaterial);
-            dot.position.copy(point);
-            scene.add(dot);
-          }
-        });
+      // ピーク強調の発光垂線
+      // count が maxCount * PEAK_RATIO 以上のセルだけ、地面からサーフェスまで
+      // highlight 色の縦線を立てる。これが「luminous edge treatment」と
+      // 「readable bias」の主役。
+      // 値が均一な日に 168 本立たないよう、ranking で上位 N に限定する。
+      const PEAK_RATIO = 0.7;  // maxCount の 70% 以上を peak とみなす
+      const PEAK_LIMIT = 20;   // ornamental clutter を避けるため上位 N 個に限定
+      const peakThreshold = 5 * PEAK_RATIO;
+
+      const ranked = [];
+      for (let z = 0; z < 7; z++) {
+        for (let x = 0; x < 24; x++) {
+          ranked.push({ z, x, h: heightMap[z][x] });
+        }
+      }
+      ranked.sort((a, b) => b.h - a.h);
+      const peaks = ranked.slice(0, PEAK_LIMIT).filter(p => p.h >= peakThreshold && p.h > 0);
+
+      const peakMat = new THREE.LineBasicMaterial({ color: COLOR_HIGHLIGHT });
+      peaks.forEach(({ z, x, h }) => {
+        // PlaneGeometry の row z は plane local Y = (3 - z) に配置される。
+        // surface.rotation.x = -PI/2 で local Y → world -Z に写るので、
+        // row z の world Z = -(3 - z) = z - 3。peak ラインも同じ式で立てる。
+        const wx = x - 11.5;
+        const wz = z - 3;
+        const peakGeo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(wx, 0, wz),
+          new THREE.Vector3(wx, h, wz)
+        ]);
+        scene.add(new THREE.Line(peakGeo, peakMat));
       });
 
-      // Add grid and axes
       addGrid3D();
       addAxes3D();
 
-      camera.position.set(15, 10, 15);
-      camera.lookAt(0, 0, 0);
+      // カメラは少し引いて全体のシルエットを掴む。注視点を少し上げる
+      // ことでサーフェス全体が視野中心に収まる。
+      camera.position.set(18, 12, 18);
+      camera.lookAt(0, 1, 0);
 
-      // Rotate camera
+      // calm, restrained な自動回転 (旧 0.005 → 0.002)
       let angle = 0;
       function rotateCamera() {
-        angle += 0.005;
-        camera.position.x = Math.cos(angle) * 15;
-        camera.position.z = Math.sin(angle) * 15;
-        camera.lookAt(0, 0, 0);
+        angle += 0.002;
+        camera.position.x = Math.cos(angle) * 18;
+        camera.position.z = Math.sin(angle) * 18;
+        camera.lookAt(0, 1, 0);
       }
 
       function animate3D() {
@@ -443,7 +505,7 @@
     function addGrid3D() {
       // Both center and outer grid lines use the grid token; depth is
       // implied by the geometry, not by a chroma split.
-      const gridHelper = new THREE.GridHelper(20, 20, COLOR_GRID, COLOR_GRID);
+      const gridHelper = new THREE.GridHelper(24, 24, COLOR_GRID, COLOR_GRID);
       gridHelper.position.y = -0.1;
       scene.add(gridHelper);
     }

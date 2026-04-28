@@ -59,6 +59,11 @@ API では色指定を `theme` の単語だけで済ませず、最終的には�
 - 画面の最初に出る「全体像」
 - カメラは自動回転し、偏りを見せる
 
+> **Phase 2 status:** 実装済み。半透明のハイトフィールドサーフェス
+> （`MeshStandardMaterial`）にワイヤーフレームを重ね、`count` が
+> ピーク帯（しきい値: max の 70%）に該当するセルだけ `highlight` 色の
+> 垂直発光ラインを立てる。カメラは calm な低速自動回転（angle += 0.002）。
+
 ### 2. Month View
 
 - 1か月の活動をカレンダーとして俯瞰
@@ -188,7 +193,7 @@ iframe 用 UI:
 優先順位:
 
 1. 真の animated WebP 化
-2. `kira` ビューを Kira Screen として再設計
+2. ~~`kira` ビューを Kira Screen として再設計~~（Phase 2 完了: surface + wireframe + peak edge）
 3. `week` ビューを Weekly Overlay 主役の見た目に再設計
 4. `month` ビューを Month View として再定義
 
