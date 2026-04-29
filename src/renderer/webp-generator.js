@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { GitHubClient } from '../services/github.js';
 import { HatenaBookmarkClient } from '../services/hatena.js';
+import { RssAtomFeedClient } from '../services/rss.js';
 import { DataProcessor } from '../utils/data-processor.js';
 import { getPalette, sanitizePalette } from './palette.js';
 
@@ -14,6 +15,14 @@ const __dirname = dirname(__filename);
 
 const githubClient = new GitHubClient();
 const hatenaClient = new HatenaBookmarkClient();
+const rssClient = new RssAtomFeedClient();
+
+// In-flight request deduplication for source=rss. /embed pre-warms three
+// single-view WebPs in parallel, so without dedup we'd fire three identical
+// fetches at the upstream feed within milliseconds. Sharing one Promise
+// keyed by feed URL collapses that to a single fetch; the entry is cleared
+// once the Promise settles so a later cache miss can refetch normally.
+const inFlightFeeds = new Map();
 
 // Singleton browser instance for better performance
 let browserInstance = null;
@@ -68,14 +77,15 @@ async function getBrowser() {
  *   ('film' | 'github' | 'hatena' | 'sepia' | 'mono')。それ以外は film にフォールバック。
  * @param {string} size - 'small' | 'medium' | 'large'
  * @param {object} [palette] - Resolved palette from server. If omitted, resolved here.
+ * @param {string} [feed] - Feed URL when source='rss'. Ignored otherwise.
  * @returns {Promise<Buffer>} WebP buffer
  */
-export async function generateAnimatedWebP(username, source, theme, size, palette) {
+export async function generateAnimatedWebP(username, source, theme, size, palette, feed) {
   console.log(`Generating animated WebP for ${username} (${source}, theme=${theme})...`);
 
   const resolvedPalette = sanitizePalette(palette ?? getPalette(theme, source));
 
-  const activityData = await fetchActivityData(username, source);
+  const activityData = await fetchActivityData(username, source, feed);
   const processedData = DataProcessor.process(activityData);
 
   console.log('Rendering all views in parallel...');
@@ -112,9 +122,10 @@ export async function generateAnimatedWebP(username, source, theme, size, palett
  *   ('film' | 'github' | 'hatena' | 'sepia' | 'mono')。それ以外は film にフォールバック。
  * @param {string} size
  * @param {object} [palette] - Resolved palette from server. If omitted, resolved here.
+ * @param {string} [feed] - Feed URL when source='rss'. Ignored otherwise.
  * @returns {Promise<Buffer>} WebP buffer
  */
-export async function generateView(username, source, view, theme, size, palette) {
+export async function generateView(username, source, view, theme, size, palette, feed) {
   const scene = VIEW_TO_SCENE[view];
   if (!scene) {
     throw new Error(`Unknown view: ${view}`);
@@ -124,7 +135,7 @@ export async function generateView(username, source, view, theme, size, palette)
 
   const resolvedPalette = sanitizePalette(palette ?? getPalette(theme, source));
 
-  const activityData = await fetchActivityData(username, source);
+  const activityData = await fetchActivityData(username, source, feed);
   const processedData = DataProcessor.process(activityData);
 
   const frame = await renderScene(processedData, scene, theme, size, resolvedPalette);
@@ -138,18 +149,43 @@ export async function generateView(username, source, view, theme, size, palette)
 }
 
 /**
- * Fetch activity data from source
+ * Fetch activity data from source.
+ * For source='rss', the `feed` URL is required and is used both for the
+ * actual fetch and as the implicit identity (the `username` becomes a
+ * display label only).
  */
-async function fetchActivityData(username, source) {
+async function fetchActivityData(username, source, feed) {
   console.log(`Fetching ${source} data for ${username}...`);
 
   if (source === 'github') {
     return await githubClient.getComprehensiveActivity(username);
-  } else if (source === 'hatena') {
-    return await hatenaClient.getComprehensiveActivity(username);
-  } else {
-    throw new Error(`Unknown source: ${source}`);
   }
+  if (source === 'hatena') {
+    return await hatenaClient.getComprehensiveActivity(username);
+  }
+  if (source === 'rss') {
+    if (!feed) {
+      throw new Error('feed URL required for source=rss');
+    }
+    // Dedupe concurrent fetches against the same feed URL. The first caller
+    // installs a Promise; subsequent callers (e.g. parallel pre-warm of
+    // kira / month / week) await the same Promise. The finally clears the
+    // entry so cache misses after this batch can fetch fresh.
+    const existing = inFlightFeeds.get(feed);
+    if (existing) {
+      return await existing;
+    }
+    const promise = (async () => {
+      try {
+        return await rssClient.getComprehensiveActivity(feed, username);
+      } finally {
+        inFlightFeeds.delete(feed);
+      }
+    })();
+    inFlightFeeds.set(feed, promise);
+    return await promise;
+  }
+  throw new Error(`Unknown source: ${source}`);
 }
 
 /**

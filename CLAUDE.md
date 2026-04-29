@@ -37,6 +37,7 @@ kira-activity/
 │   ├── services/
 │   │   ├── github.js             # GitHub API クライアント
 │   │   ├── hatena.js             # はてなブックマーク API
+│   │   ├── rss.js                # 汎用 RSS/Atom/RDF フィードクライアント
 │   │   └── cache.js              # キャッシュ管理
 │   ├── renderer/
 │   │   ├── embed.html            # /embed の HTML テンプレート（Phase 0 placeholder）
@@ -63,11 +64,51 @@ kira-activity/
 
 `/embed` と `/api/graph` で同じ仕様。
 
-- `user` (必須)
-- `source` (`github` | `hatena`、default `github`)
+- `user` (必須。`source=rss` のときは表示用ラベル)
+- `source` (`github` | `hatena` | `rss`、default `github`)
 - `theme` (`film` | `github` | `hatena` | `sepia` | `mono`、default `film`)
 - `size` (`small` | `medium` | `large`、default `medium`)
 - `view` (`kira` | `month` | `week` | `auto`、default `auto`)
+- `feed` (`source=rss` のとき必須、http(s) URL、最大 1024 文字。それ以外の source では捨てる)
+
+`VALID_SOURCES = { github, hatena, rss }`。`source=rss` は Atom 1.0 / RSS 2.0 / RDF を
+読み、各 entry/item を `{ type:'article', date, title, url }` に正規化して既存の
+data-processor にそのまま流し込む。フィードは直近 10〜50 件しか露出しないことが多い
+ので、week ビューの累積は短期 posting-time bias の表示として読む（長期 edit 活動の
+追跡用ではない）。
+
+#### `user` パターンの分岐
+
+`source=github` / `source=hatena` の `user` は外部 API に渡るので
+`USER_PATTERN_GH_LIKE = /^[A-Za-z0-9_-]{1,39}$/` に固定する。`source=rss` の `user` は
+表示用ラベルにしか使わず、外部 API には行かないので、Unicode の文字 / 数字 / 句読点 /
+空白を許容する `USER_PATTERN_LABEL = /^[\p{L}\p{N}\p{P}\s_-]{1,64}$/u` に切り替える。
+XSS は既存の `JSON.stringify(...).replace(/</g, '\\u003c')` 注入パターンが守る。
+
+#### `source=rss` のキャッシュキー
+
+`source=github` / `source=hatena` のキャッシュキーは `graph_{source}_{user}_{theme}_{size}_{view}`。
+`source=rss` は `feed` URL が一次キーで `user` は表示ラベルなので、キャッシュキーから
+`user` を除外して `graph_rss_{theme}_{size}_{view}_{feedKey}` にする。`feedKey` は
+`feed` の SHA-256 (base64url, 先頭 16 文字 ≈ 96 bit) で衝突リスクを実用上無視できる
+レベルまで下げる。これで同じ feed に対して別ラベルで来たリクエストは同じキャッシュを
+共有し、外部 feed への重複 fetch を抑制できる。
+
+#### `source=rss` のセキュリティ・運用制約
+
+- **SSRF 対策**: `feed` のホストは DNS 解決後、private / loopback / link-local /
+  metadata IP（`localhost` / `127.0.0.0/8` / `10.0.0.0/8` / `172.16.0.0/12` /
+  `192.168.0.0/16` / `169.254.0.0/16` / `0.0.0.0/8` / `::1` / `fc00::/7` /
+  `fe80::/10`）であれば拒否する。`axios` の `beforeRedirect` でリダイレクト先も
+  再検証する。`username` / `password` を含む URL も拒否
+- **XXE 対策**: 取得した body の先頭 4 KB に `<!DOCTYPE` / `<!ENTITY` が含まれていたら
+  xml2js に渡す前に reject する（billion-laughs / 外部実体展開対策）
+- **URL 長制限**: `feed` は 1024 文字以内（Cloudflare 等の CDN 長さ制限を考慮）
+- **in-flight dedup**: `/embed` の 3 ビュー pre-warm が同じ feed に対して 3 連射しても、
+  webp-generator の module-level `inFlightFeeds: Map<feedUrl, Promise>` が単一の
+  Promise を共有するので fetch は 1 回に集約される
+- **エラー応答**: `source=rss` 経路の 500 は `details: 'feed fetch failed'` の
+  generic 文言にする（探索性のある details の露出を防ぐ）
 
 公開 API では `step` 語彙を使わない。`step1..step4` は `data-processor.js` の内部キーと
 `graph.html` の内部シーン番号にだけ残る実装詳細。

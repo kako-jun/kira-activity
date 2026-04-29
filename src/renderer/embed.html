@@ -118,12 +118,16 @@
 
   <script>
     // Server-injected params (placeholders replaced at request time).
+    // `feed` is the absolute URL of an external RSS/Atom/RDF feed. It is a
+    // string only when source === 'rss'; for github/hatena the server
+    // injects null so the client never appends it to /api/graph URLs.
     const PARAMS = {
       user: __USER__,
       source: __SOURCE__,
       theme: __THEME__,
       size: __SIZE__,
-      view: __VIEW__
+      view: __VIEW__,
+      feed: __FEED__
     };
 
     document.querySelector('[data-field="subtitle"]').textContent =
@@ -152,6 +156,9 @@
         size: PARAMS.size,
         view: view
       });
+      // Carry the feed URL through so single-view swaps and pre-warming
+      // hit the same cache entry the server keyed by feed.
+      if (PARAMS.feed) qs.set('feed', PARAMS.feed);
       return '/api/graph?' + qs.toString();
     }
 

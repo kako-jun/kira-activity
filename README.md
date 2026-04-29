@@ -53,11 +53,42 @@ swap し、下部のカルーセルドットと画像を完全同期させる。
 
 | パラメータ | 値 | デフォルト | 説明 |
 |---|---|---|---|
-| `user` | string | （必須） | ユーザー名 |
-| `source` | `github` / `hatena` | `github` | データソース |
+| `user` | string | （必須） | ユーザー名（`source=rss` のときは表示・キャッシュキー用ラベル） |
+| `source` | `github` / `hatena` / `rss` | `github` | データソース |
 | `theme` | `film` / `github` / `hatena` / `sepia` / `mono` | `film` | 配色テーマ |
 | `size` | `small` / `medium` / `large` | `medium` | ビューポートサイズ |
 | `view` | `kira` / `month` / `week` / `auto` | `auto` | 表示モード |
+| `feed` | http(s) URL（最大 1024 文字） | — | `source=rss` のときのみ必須。Atom 1.0 / RSS 2.0 / RDF を受け付ける |
+
+#### `source=rss` の `user` パラメータ
+
+`source=github` / `source=hatena` の `user` は外部 API に渡るので
+`/^[A-Za-z0-9_-]{1,39}$/`（GitHub ユーザー名仕様）に固定。
+`source=rss` の `user` は表示用ラベルでしかなく、外部に投げないので Unicode の
+文字 / 数字 / 句読点 / 空白を含む最大 64 文字のラベルを許容する。
+`source=rss` ではキャッシュキーから `user` を除外し、同じ feed なら user を変えても
+同じ画像を返す（外部 feed への重複 fetch を抑制）。
+
+#### `source=rss` のセキュリティ制約
+
+- `feed` ホストはパブリック IP に解決されるものに限る。`localhost` /
+  `127.0.0.0/8` / `10.0.0.0/8` / `172.16.0.0/12` / `192.168.0.0/16` /
+  `169.254.0.0/16`（リンクローカル / クラウドメタデータ）/ `0.0.0.0/8` /
+  `::1` / `fc00::/7` / `fe80::/10` は **接続不可**（SSRF 対策）
+- リダイレクト先も同じルールで再検証する
+- ユーザー情報入り URL（`https://user:pass@example.com/...`）は拒否
+- フィード本文に `<!DOCTYPE>` / `<!ENTITY>` 宣言が含まれていたら拒否
+  （billion-laughs / 外部実体展開対策）
+- フェッチサイズ上限は 5 MB
+- 失敗時のエラー詳細は `feed fetch failed` の generic 表記に丸める
+
+#### `source=rss` の限界
+
+任意のブログ・サービスの RSS/Atom フィードを `source=rss&feed=URL` で読ませると、
+記事の publish 時刻を「活動イベント」として可視化する。ただし多くのサービスは
+フィードに直近 10〜50 件しか含めず、長期 edit 履歴は手に入らない。week ビューの
+週次累積は当然この範囲しか積めないので、長期の繰り返し bias 解析というよりは
+**直近の posting-time bias** の俯瞰として読むのが妥当。
 
 ### ビュー
 
@@ -86,6 +117,7 @@ swap し、下部のカルーセルドットと画像を完全同期させる。
 - `/api/graph?user=torvalds&view=week&theme=film&size=large` — 単一ビューの WebP
 - `/api/graph?user=torvalds&source=github&theme=film` — film 配色 + GitHub 緑のアクセント
 - `/api/graph?user=torvalds&source=hatena&theme=film` — film 配色 + はてな青のアクセント
+- `/api/graph?user=foo&source=rss&feed=https%3A%2F%2Fexample.com%2Fatom` — 任意フィードの記事公開時刻を可視化
 
 ## 技術スタック
 
