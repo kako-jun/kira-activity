@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { createHash } from 'crypto';
 import { generateAnimatedWebP, generateView, shutdown as shutdownRenderer } from './renderer/webp-generator.js';
 import { getPalette, sanitizePalette, VALID_THEMES as PALETTE_THEMES } from './renderer/palette.js';
 import { CacheManager } from './services/cache.js';
@@ -23,11 +24,18 @@ const VALID_SIZES = new Set(['small', 'medium', 'large']);
 const VALID_VIEWS = new Set(['kira', 'month', 'week', 'auto']);
 // GitHub username spec: 1-39 chars, alphanumerics and hyphens.
 // We accept underscore too for forward compatibility with hatena IDs.
-const USER_PATTERN = /^[A-Za-z0-9_-]{1,39}$/;
-// `feed` is a fully qualified http/https URL. We only enforce a coarse shape
-// here (scheme + non-whitespace + length cap) because the client-side fetcher
-// in services/rss.js will fail loudly on actual network/parse errors.
-const FEED_URL_PATTERN = /^https?:\/\/[^\s]{1,2048}$/i;
+const USER_PATTERN_GH_LIKE = /^[A-Za-z0-9_-]{1,39}$/;
+// For source=rss the `user` parameter is a display/cache label only — it
+// never round-trips to an external API — so we accept any reasonable
+// printable string (letters / digits / punctuation / spaces, ≤64 chars).
+// XSS is already prevented by the JSON-encoded + `<` escaped injection in
+// renderEmbed() / webp-generator.js.
+const USER_PATTERN_LABEL = /^[\p{L}\p{N}\p{P}\s_-]{1,64}$/u;
+// `feed` is a fully qualified http/https URL. The 1024-char cap is tighter
+// than RFC's de-facto 2048: Cloudflare and most CDNs reject URLs longer
+// than that for cached endpoints, and a feed URL that doesn't fit is a
+// strong signal of abuse.
+const FEED_URL_PATTERN = /^https?:\/\/[^\s]{1,1024}$/i;
 
 function parseSharedParams(c) {
   const user = c.req.query('user');
@@ -40,11 +48,14 @@ function parseSharedParams(c) {
   if (!user) {
     return { error: 'user parameter is required' };
   }
-  if (!USER_PATTERN.test(user)) {
-    return { error: 'invalid user: must match /^[A-Za-z0-9_-]{1,39}$/' };
-  }
   if (!VALID_SOURCES.has(source)) {
     return { error: `invalid source: ${source}` };
+  }
+  // user pattern depends on source: github/hatena need API-safe handles,
+  // rss only uses the value as a label so we accept a wider character set.
+  const userPattern = source === 'rss' ? USER_PATTERN_LABEL : USER_PATTERN_GH_LIKE;
+  if (!userPattern.test(user)) {
+    return { error: `invalid user: does not match the pattern allowed for source=${source}` };
   }
   if (!VALID_THEMES.has(theme)) {
     return { error: `invalid theme: ${theme}` };
@@ -164,12 +175,20 @@ app.get('/api/graph', async (c) => {
 
   try {
     // Encode the feed URL into a short stable suffix so two different feeds
-    // for the same source=rss don't collide in cache. base64url is safe for
-    // a cache key (no '/', '+', '='). Truncating to 16 chars keeps the key
-    // compact at the cost of a ~10^-9 collision risk per user, which is
-    // acceptable for a 1-hour cached image.
-    const feedKey = feed ? `_${Buffer.from(feed).toString('base64url').slice(0, 16)}` : '';
-    const cacheKey = `graph_${source}_${user}_${theme}_${size}_${view}${feedKey}`;
+    // for the same source=rss don't collide in cache. SHA-256 (base64url,
+    // first 16 chars ≈ 96 bits of entropy) avoids the trivial reversibility
+    // of raw base64 and gives effectively zero collision risk for cached
+    // images.
+    const feedKey = feed
+      ? `_${createHash('sha256').update(feed).digest('base64url').slice(0, 16)}`
+      : '';
+    // For source=rss the `feed` URL is the actual data identity; `user` is
+    // only a display label, so we leave it out of the cache key. This lets
+    // multiple labels share one cached fetch and prevents trivial cache
+    // pollution by varying `user` against the same feed.
+    const cacheKey = source === 'rss'
+      ? `graph_rss_${theme}_${size}_${view}${feedKey}`
+      : `graph_${source}_${user}_${theme}_${size}_${view}`;
     const cached = cache.get(cacheKey);
     if (cached) {
       return new Response(cached, {
@@ -194,7 +213,12 @@ app.get('/api/graph', async (c) => {
     });
   } catch (error) {
     console.error('Error generating graph:', error);
-    return c.json({ error: 'Failed to generate graph', details: error.message }, 500);
+    // For source=rss we deliberately return a generic message so a malformed
+    // / malicious URL or upstream HTTP error doesn't echo back details that
+    // help probe internal infrastructure. github / hatena keep the original
+    // surface since their failure modes are well-known public APIs.
+    const details = source === 'rss' ? 'feed fetch failed' : error.message;
+    return c.json({ error: 'Failed to generate graph', details }, 500);
   }
 });
 

@@ -229,9 +229,15 @@ iframe 用 UI:
 > **Limitation:** ほとんどのサービスはフィードに直近 10〜50 件しか含めない。
 > week ビューの累積は当然この範囲に閉じるため、長期の繰り返し bias を読むツール
 > ではなく、**直近の posting-time bias を眺めるツール**として捉えるのが正しい。
-> `feed` の URL ハッシュ（base64url 16 文字）を `/api/graph` のキャッシュキーに
-> 混ぜているので、同じ user/source で複数フィードを同時運用しても衝突しない。
+> `feed` の SHA-256 ハッシュ（base64url 先頭 16 文字）を `/api/graph` のキャッシュキー
+> に使い、`source=rss` ではキャッシュキーから `user`（表示ラベル）を除外する。
 > カスタム配色 / JSON 入力は Phase 6 のスコープ外。
+>
+> **Security:** `source=rss` の `feed` は private / loopback / link-local /
+> metadata IP に解決されるホストへの接続を拒否（SSRF 対策）し、リダイレクト先も
+> 再検証する。`<!DOCTYPE>` / `<!ENTITY>` を含む body は xml2js に渡す前に reject
+> する（XXE / billion-laughs 対策）。URL 長は 1024 文字、フェッチサイズは 5 MB
+> 上限。`/embed` の 3 ビュー pre-warm は in-flight Map で 1 fetch に集約。
 
 ## Rendering Notes
 
