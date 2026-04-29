@@ -138,7 +138,7 @@ bun run bun     # ~50ms startup (4x faster)
 - RAM: 16GB
 - OS: Ubuntu 22.04
 
-### Test Case: Generate kira/month/week frames for GitHub user "torvalds" via /api/graph?view=auto
+### Test Case: Generate kira/month/week frames for GitHub user "torvalds" via /image?view=auto
 
 | Scenario | Node.js | Bun | Speedup |
 |----------|---------|-----|---------|
@@ -214,7 +214,7 @@ For **high traffic** (> 100 req/min):
 - JS + WebAssembly の muxer 段で +50〜200ms 程度（3 フレームを mux するだけ、
   ネイティブビルド依存なし。node-webpmux のライセンスは LGPL-3.0-or-later）。
   上の Bun ベンチマーク数値（4.1s / 5.9s）はおおむね維持されるが、
-  `/api/graph?view=auto` のみ若干上振れする点に注意
+  `/image?view=auto` のみ若干上振れする点に注意
 
 ### 4. **GPU Acceleration**
 - Use `--enable-gpu` for Three.js rendering

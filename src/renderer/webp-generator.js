@@ -56,7 +56,7 @@ async function getBrowser() {
 
 /**
  * Generate animated WebP cycling through kira -> month -> week.
- * Used by /api/graph?view=auto (the canonical export of /embed).
+ * Used by /image?view=auto (the canonical export of /viewer).
  *
  * @param {string} username - User identifier or display label (depends on source)
  * @param {string} source - SUPPORTED_SOURCES のいずれか ('github' | 'hatena' | 'rss')
@@ -87,7 +87,7 @@ export async function generateAnimatedWebP(username, source, theme, size, palett
   console.log(`Rendered ${frames.length} frames in ${renderTime}ms (parallel)`);
 
   // Per-frame delays in ms, matching ALL_VIEWS order (kira, month, week).
-  // These are the same dwell times used by /embed VIEW_DELAYS and the
+  // These are the same dwell times used by /viewer VIEW_DELAYS and the
   // per-scene waitTime in renderScene(), so the iframe and the export
   // feel identical.
   const FRAME_DELAYS = [4000, 2500, 5000];
@@ -100,7 +100,7 @@ export async function generateAnimatedWebP(username, source, theme, size, palett
 
 /**
  * Generate a single-view WebP export.
- * Used by /api/graph?view=kira|month|week.
+ * Used by /image?view=kira|month|week.
  *
  * @param {string} username
  * @param {string} source - SUPPORTED_SOURCES のいずれか ('github' | 'hatena' | 'rss')

@@ -46,9 +46,9 @@ API では色指定を `theme` の単語だけで済ませず、最終的には�
 
 例:
 
-- `/api/graph?user=kako-jun&source=github&theme=film` — film 配色 + GitHub 緑のアクセント
-- `/api/graph?user=kako-jun&source=github&theme=github` — GitHub 草配色（accent 固定）
-- `/api/graph?user=kako-jun&source=hatena&theme=film` — film 配色 + はてな青のアクセント
+- `/image?user=kako-jun&source=github&theme=film` — film 配色 + GitHub 緑のアクセント
+- `/image?user=kako-jun&source=github&theme=github` — GitHub 草配色（accent 固定）
+- `/image?user=kako-jun&source=hatena&theme=film` — film 配色 + はてな青のアクセント
 
 ## Core Modes
 
@@ -118,7 +118,7 @@ Three.js のままでもよいが、動きの考え方は p5 的な「美しい�
 
 GitHub のプロフィール右上や README に貼る主戦場。
 
-- Endpoint: `/api/graph`
+- Endpoint: `/image`
 - Return: `image/webp`
 - 中身は animated WebP
 - UI は含まない
@@ -140,9 +140,9 @@ GitHub のプロフィール右上や README に貼る主戦場。
 
 ### B. Single-view export
 
-`/api/frame` は廃止。単一ビューが必要な場合は `/api/graph` に `view` を渡す。
+`/api/frame` は廃止。単一ビューが必要な場合は `/image` に `view` を渡す。
 
-- Endpoint: `/api/graph?view=kira|month|week`
+- Endpoint: `/image?view=kira|month|week`
 - Return: `image/webp`
 - 単一状態を返す
 
@@ -155,7 +155,7 @@ GitHub のプロフィール右上や README に貼る主戦場。
 
 対話的埋め込み。
 
-- Endpoint 例: `/embed?user=...`
+- Endpoint 例: `/viewer?user=...`
 - 自動再生あり
 - 下部にカルーセルの丸を表示
 - 自動遷移も手動選択も可能
@@ -174,15 +174,15 @@ iframe 用 UI:
 - Next.js は採用しない
 
 > **Phase 4 status:** 実装済み。`embed.html` は `<img id="kira-image">` に
-> `/api/graph` を読み込ませる。`view=auto` のときは embed 側がクライアントサイドで
+> `/image` を読み込ませる。`view=auto` のときは viewer 側がクライアントサイドで
 > 単一ビュー WebP（kira / month / week）をサイクル時間ごとに `<img>.src` ごと swap し、
 > ドットと画像を完全同期させる（`performance.now()` 起点 RAF ループ + fade swap）。
 > `view=kira|month|week` のときは単一ビュー WebP を表示し、該当ドットだけ active になる。
 > ドットクリックは auto 同期を停止し、CSS opacity フェード（400ms ease-in-out）で
 > 単一ビュー WebP に切り替わる。読み込み待ちを隠すため、3 つの単一ビュー（kira +
-> month + week）を初期 load 時に並列 pre-warm する（`auto` は embed 側で使わないので除外）。
+> month + week）を初期 load 時に並列 pre-warm する（`auto` は viewer 側で使わないので除外）。
 
-> **Phase 5 status:** 実装済み。`/api/graph?view=auto` は sharp で
+> **Phase 5 status:** 実装済み。`/image?view=auto` は sharp で
 > kira / month / week の 3 フレームをそれぞれ静止 WebP に encode したあと、
 > `node-webpmux` で VP8X + ANIM + ANMF×3 の真の animated WebP コンテナに
 > muxing する。sharp 単体では静止フレーム配列から animated WebP を生成
@@ -199,7 +199,7 @@ iframe 用 UI:
 
 最初に出すべきもの:
 
-- `/api/graph` が **本当に animated WebP を返す**
+- `/image` が **本当に animated WebP を返す**
 - ループは `3D -> month -> week`
 - `theme=film` が完成している
 - `source=github|hatena` でアクセント色が変わる
@@ -211,7 +211,7 @@ iframe 用 UI:
 - 手動切り替え
 - モード固定 URL
 
-> Phase 4 で完了。`/embed` が `/api/graph` 駆動の対話的カルーセルとして動く。
+> Phase 4 で完了。`/embed` が `/image` 駆動の対話的カルーセルとして動く。
 
 ### Phase 3
 
@@ -229,7 +229,7 @@ iframe 用 UI:
 > **Limitation:** ほとんどのサービスはフィードに直近 10〜50 件しか含めない。
 > week ビューの累積は当然この範囲に閉じるため、長期の繰り返し bias を読むツール
 > ではなく、**直近の posting-time bias を眺めるツール**として捉えるのが正しい。
-> `feed` の SHA-256 ハッシュ（base64url 先頭 16 文字）を `/api/graph` のキャッシュキー
+> `feed` の SHA-256 ハッシュ（base64url 先頭 16 文字）を `/image` のキャッシュキー
 > に使い、`source=rss` ではキャッシュキーから `user`（表示ラベル）を除外する。
 > カスタム配色 / JSON 入力は Phase 6 のスコープ外。
 >
@@ -241,7 +241,7 @@ iframe 用 UI:
 
 ## Rendering Notes
 
-`/api/graph` は Phase 5 で真の animated WebP に対応済み。`view=auto`（デフォルト）は
+`/image` は Phase 5 で真の animated WebP に対応済み。`view=auto`（デフォルト）は
 sharp で各フレームを静止 WebP に encode したあと、node-webpmux で kira / month / week
 の 3 フレームを 1 枚の animated WebP（VP8X + ANIM + ANMF×3）に muxing して返す。
 per-frame delay は embed の VIEW_DELAYS と揃えている。node-webpmux は JS +

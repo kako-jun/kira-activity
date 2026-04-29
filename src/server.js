@@ -33,7 +33,7 @@ const USER_PATTERN_GH_LIKE = /^[A-Za-z0-9_-]{1,39}$/;
 // never round-trips to an external API — so we accept any reasonable
 // printable string (letters / digits / punctuation / spaces, ≤64 chars).
 // XSS is already prevented by the JSON-encoded + `<` escaped injection in
-// renderEmbed() / webp-generator.js.
+// renderViewer() / webp-generator.js.
 const USER_PATTERN_LABEL = /^[\p{L}\p{N}\p{P}\s_-]{1,64}$/u;
 // `feed` is a fully qualified http/https URL. The 1024-char cap is tighter
 // than RFC's de-facto 2048: Cloudflare and most CDNs reject URLs longer
@@ -97,11 +97,13 @@ function parseSharedParams(c) {
 }
 
 // Eager load template at module init. Failing fast at startup is preferable
-// to lazily failing on the first request.
-const EMBED_TEMPLATE = readFileSync(join(__dirname, 'renderer', 'embed.html'), 'utf-8');
+// to lazily failing on the first request. The on-disk filename
+// `embed.html` is kept for git history continuity; the template is served
+// at the public route `/viewer`.
+const VIEWER_TEMPLATE = readFileSync(join(__dirname, 'renderer', 'embed.html'), 'utf-8');
 
 /**
- * Render the embed template by replacing __USER__ / __SOURCE__ / __THEME__ /
+ * Render the viewer template by replacing __USER__ / __SOURCE__ / __THEME__ /
  * __SIZE__ / __VIEW__ placeholders (script context, JSON-encoded) and
  * __PALETTE_*__ placeholders (CSS context, raw hex strings) in a single pass.
  *
@@ -117,14 +119,14 @@ const EMBED_TEMPLATE = readFileSync(join(__dirname, 'renderer', 'embed.html'), '
  * as `?user=zzz__VIEW__zzz` cannot accidentally inject into a later
  * placeholder slot the way chained `.replace()` calls allowed.
  */
-function renderEmbed(params) {
+function renderViewer(params) {
   const scriptMap = {
     USER: params.user,
     SOURCE: params.source,
     THEME: params.theme,
     SIZE: params.size,
     VIEW: params.view,
-    // null when source != rss so the embed JS can skip appending &feed=.
+    // null when source != rss so the viewer JS can skip appending &feed=.
     FEED: params.feed ?? null
   };
   const cssMap = {
@@ -134,7 +136,7 @@ function renderEmbed(params) {
     PALETTE_ACCENT: params.palette.accent,
     PALETTE_HIGHLIGHT: params.palette.highlight
   };
-  return EMBED_TEMPLATE.replace(
+  return VIEWER_TEMPLATE.replace(
     /__(USER|SOURCE|THEME|SIZE|VIEW|FEED|PALETTE_BG|PALETTE_INK|PALETTE_GRID|PALETTE_ACCENT|PALETTE_HIGHLIGHT)__/g,
     (_, k) => {
       if (k in cssMap) return cssMap[k];
@@ -151,27 +153,27 @@ app.get('/health', (c) => {
 });
 
 /**
- * /embed — canonical renderer (HTML for iframe usage).
- * /api/graph is a WebP export over this same renderer with view=auto.
+ * /viewer — canonical renderer (HTML for iframe usage).
+ * /image is a WebP export over this same renderer with view=auto.
  */
-app.get('/embed', (c) => {
+app.get('/viewer', (c) => {
   const params = parseSharedParams(c);
   if (params.error) {
     return c.json({ error: params.error }, 400);
   }
 
-  const html = renderEmbed(params);
+  const html = renderViewer(params);
 
   c.header('Cache-Control', 'public, max-age=3600');
   return c.html(html);
 });
 
 /**
- * /api/graph — WebP export of /embed.
+ * /image — WebP export of /viewer.
  * - view=auto (default): animated playback of all views
  * - view=kira|month|week: single-view static export
  */
-app.get('/api/graph', async (c) => {
+app.get('/image', async (c) => {
   const params = parseSharedParams(c);
   if (params.error) {
     return c.json({ error: params.error }, 400);
@@ -218,13 +220,13 @@ app.get('/api/graph', async (c) => {
       }
     });
   } catch (error) {
-    console.error('Error generating graph:', error);
+    console.error('Error generating image:', error);
     // For source=rss we deliberately return a generic message so a malformed
     // / malicious URL or upstream HTTP error doesn't echo back details that
     // help probe internal infrastructure. github / hatena keep the original
     // surface since their failure modes are well-known public APIs.
     const details = source === 'rss' ? 'feed fetch failed' : error.message;
-    return c.json({ error: 'Failed to generate graph', details }, 500);
+    return c.json({ error: 'Failed to generate image', details }, 500);
   }
 });
 
@@ -282,17 +284,17 @@ app.get('/', (c) => {
         <option value="month">month (calendar)</option>
         <option value="week">week (line)</option>
       </select>
-      <button onclick="showEmbed()">Show /embed</button>
-      <button onclick="showGraph()">Export /api/graph</button>
+      <button onclick="showViewer()">Show /viewer</button>
+      <button onclick="showImage()">Export /image</button>
     </div>
 
     <div class="result" id="result"></div>
 
     <div class="example">
       <h3>Endpoints</h3>
-      <p><code>/embed?user=USER&view=auto</code> - canonical iframe renderer</p>
-      <p><code>/api/graph?user=USER</code> - WebP export (view=auto by default)</p>
-      <p><code>/api/graph?user=USER&view=kira</code> - single-view static WebP</p>
+      <p><code>/viewer?user=USER&view=auto</code> - canonical iframe renderer</p>
+      <p><code>/image?user=USER</code> - WebP export (view=auto by default)</p>
+      <p><code>/image?user=USER&view=kira</code> - single-view static WebP</p>
 
       <h3>Shared parameters</h3>
       <p><code>user</code> required</p>
@@ -304,21 +306,21 @@ app.get('/', (c) => {
   </div>
 
   <script>
-    function showEmbed() {
+    function showViewer() {
       const username = document.getElementById('username').value;
       const view = document.getElementById('view').value;
       if (!username) { alert('Enter a username'); return; }
       const result = document.getElementById('result');
-      result.innerHTML = '<iframe src="/embed?user=' + encodeURIComponent(username) + '&view=' + view + '"></iframe>';
+      result.innerHTML = '<iframe src="/viewer?user=' + encodeURIComponent(username) + '&view=' + view + '"></iframe>';
     }
-    function showGraph() {
+    function showImage() {
       const username = document.getElementById('username').value;
       const view = document.getElementById('view').value;
       if (!username) { alert('Enter a username'); return; }
       const result = document.getElementById('result');
       result.innerHTML = '<p>Generating...</p>';
       const img = new Image();
-      img.src = '/api/graph?user=' + encodeURIComponent(username) + '&view=' + view;
+      img.src = '/image?user=' + encodeURIComponent(username) + '&view=' + view;
       img.onload = () => { result.innerHTML = ''; result.appendChild(img); };
       img.onerror = () => { result.innerHTML = '<p style="color:#f00;">Failed</p>'; };
     }
