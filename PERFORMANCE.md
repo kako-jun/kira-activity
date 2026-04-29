@@ -206,9 +206,12 @@ For **high traffic** (> 100 req/min):
 - Process large datasets faster
 - Potential 5-10x speedup for kira / week views
 
-### 3. **WebP Animation Support**
-- Currently returning static image (last frame only)
-- True animation would be 4x smaller file size
+### 3. ~~**WebP Animation Support**~~ (Phase 5 完了)
+- ~~Currently returning static image (last frame only)~~
+- Phase 5 で sharp 0.34 の `join: { animated: true }` により真の animated WebP に対応済み
+- 最終 sharp 段は静止 WebP より若干重くなる（実測 +100〜300ms 程度、3 フレームを 1 枚に
+  まとめてエンコードするため）。上の Bun ベンチマーク数値（4.1s / 5.9s）はおおむね
+  維持されるが、`/api/graph?view=auto` のみ若干上振れする点に注意
 
 ### 4. **GPU Acceleration**
 - Use `--enable-gpu` for Three.js rendering
