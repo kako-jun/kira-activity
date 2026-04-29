@@ -219,6 +219,20 @@ iframe 用 UI:
 - JSON 入力
 - 他サービス入力
 
+> **Phase 6 status:** 「他サービス入力」のうち RSS/Atom/RDF 系は実装済み。
+> `source=rss&feed=URL` で任意のフィードを読み、各 entry/item を
+> `{ type:'article', date, title, url }` に正規化して既存の data-processor に
+> そのまま流し込む。Atom は `published > updated`、RSS 2.0 は
+> `pubDate > dc:date`、RDF は `dc:date > pubDate` の優先順で日付を抽出する。
+> 視覚化レイヤー（graph.html / data-processor.js）にソース固有ロジックは入っていない。
+>
+> **Limitation:** ほとんどのサービスはフィードに直近 10〜50 件しか含めない。
+> week ビューの累積は当然この範囲に閉じるため、長期の繰り返し bias を読むツール
+> ではなく、**直近の posting-time bias を眺めるツール**として捉えるのが正しい。
+> `feed` の URL ハッシュ（base64url 16 文字）を `/api/graph` のキャッシュキーに
+> 混ぜているので、同じ user/source で複数フィードを同時運用しても衝突しない。
+> カスタム配色 / JSON 入力は Phase 6 のスコープ外。
+
 ## Rendering Notes
 
 `/api/graph` は Phase 5 で真の animated WebP に対応済み。`view=auto`（デフォルト）は

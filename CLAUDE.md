@@ -37,6 +37,7 @@ kira-activity/
 │   ├── services/
 │   │   ├── github.js             # GitHub API クライアント
 │   │   ├── hatena.js             # はてなブックマーク API
+│   │   ├── rss.js                # 汎用 RSS/Atom/RDF フィードクライアント
 │   │   └── cache.js              # キャッシュ管理
 │   ├── renderer/
 │   │   ├── embed.html            # /embed の HTML テンプレート（Phase 0 placeholder）
@@ -63,11 +64,19 @@ kira-activity/
 
 `/embed` と `/api/graph` で同じ仕様。
 
-- `user` (必須)
-- `source` (`github` | `hatena`、default `github`)
+- `user` (必須。`source=rss` のときは表示・キャッシュキー用ラベル)
+- `source` (`github` | `hatena` | `rss`、default `github`)
 - `theme` (`film` | `github` | `hatena` | `sepia` | `mono`、default `film`)
 - `size` (`small` | `medium` | `large`、default `medium`)
 - `view` (`kira` | `month` | `week` | `auto`、default `auto`)
+- `feed` (`source=rss` のとき必須、http(s) URL。それ以外の source では捨てる)
+
+`VALID_SOURCES = { github, hatena, rss }`。`source=rss` は Atom 1.0 / RSS 2.0 / RDF を
+読み、各 entry/item を `{ type:'article', date, title, url }` に正規化して既存の
+data-processor にそのまま流し込む。フィードは直近 10〜50 件しか露出しないことが多い
+ので、week ビューの累積は短期 posting-time bias の表示として読む（長期 edit 活動の
+追跡用ではない）。`feed` の URL ハッシュ（base64url 16 文字）が `/api/graph` の
+キャッシュキーに混ぜられるので、同じ user/source で複数フィードを同時運用しても衝突しない。
 
 公開 API では `step` 語彙を使わない。`step1..step4` は `data-processor.js` の内部キーと
 `graph.html` の内部シーン番号にだけ残る実装詳細。

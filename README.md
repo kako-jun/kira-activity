@@ -53,11 +53,20 @@ swap し、下部のカルーセルドットと画像を完全同期させる。
 
 | パラメータ | 値 | デフォルト | 説明 |
 |---|---|---|---|
-| `user` | string | （必須） | ユーザー名 |
-| `source` | `github` / `hatena` | `github` | データソース |
+| `user` | string | （必須） | ユーザー名（`source=rss` のときは表示・キャッシュキー用ラベル） |
+| `source` | `github` / `hatena` / `rss` | `github` | データソース |
 | `theme` | `film` / `github` / `hatena` / `sepia` / `mono` | `film` | 配色テーマ |
 | `size` | `small` / `medium` / `large` | `medium` | ビューポートサイズ |
 | `view` | `kira` / `month` / `week` / `auto` | `auto` | 表示モード |
+| `feed` | http(s) URL | — | `source=rss` のときのみ必須。Atom 1.0 / RSS 2.0 / RDF を受け付ける |
+
+#### `source=rss` の限界
+
+任意のブログ・サービスの RSS/Atom フィードを `source=rss&feed=URL` で読ませると、
+記事の publish 時刻を「活動イベント」として可視化する。ただし多くのサービスは
+フィードに直近 10〜50 件しか含めず、長期 edit 履歴は手に入らない。week ビューの
+週次累積は当然この範囲しか積めないので、長期の繰り返し bias 解析というよりは
+**直近の posting-time bias** の俯瞰として読むのが妥当。
 
 ### ビュー
 
@@ -86,6 +95,7 @@ swap し、下部のカルーセルドットと画像を完全同期させる。
 - `/api/graph?user=torvalds&view=week&theme=film&size=large` — 単一ビューの WebP
 - `/api/graph?user=torvalds&source=github&theme=film` — film 配色 + GitHub 緑のアクセント
 - `/api/graph?user=torvalds&source=hatena&theme=film` — film 配色 + はてな青のアクセント
+- `/api/graph?user=foo&source=rss&feed=https%3A%2F%2Fexample.com%2Fatom` — 任意フィードの記事公開時刻を可視化
 
 ## 技術スタック
 
