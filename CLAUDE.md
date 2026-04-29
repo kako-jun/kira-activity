@@ -106,7 +106,8 @@ Phase 1 では scene 1..4 内の最も目立つハードコード色（背景・
 1. データ取得（GitHub API / Hatena RSS）
 2. データ変換（4 シーン分のキーに整形 — 内部実装詳細）
 3. 並列レンダリング（Puppeteer + Three.js）
-4. WebP 変換（Sharp）
+4. WebP 変換（各フレーム: Sharp で静止 WebP encode → アニメ化が必要な
+   `view=auto` のみ node-webpmux で 1 枚の animated WebP に mux）
 
 ## パフォーマンス最適化
 
@@ -178,6 +179,16 @@ Node.js より 2–3 倍高速（`bun src/server.js`）。
 - ブラウザインスタンスのシングルトン管理
 - 並列フレーム生成
 - 公開 view 名 → 内部 scene 番号の変換はここに集中
+- **Phase 5**: `createAnimatedWebP(frames, delays)` は sharp で各フレームを
+  個別の静止 WebP にエンコードしたあと、`node-webpmux`（JS + WebAssembly、
+  ネイティブビルド依存なし、ライセンスは LGPL-3.0-or-later）で VP8X + ANIM
+  + ANMF×N の真の animated WebP コンテナに muxing する。
+  sharp 自体は静止フレーム配列から animated WebP を生成できない（animated 出力は
+  既に animated な入力の再エンコードのみ対応、`join: { animated: true }` は
+  単ページ WebP に潰れる）ため、muxer を分離している。per-frame `delay` は
+  ALL_VIEWS の順序（kira → month → week）と一致する `[4000, 2500, 5000]` ms、
+  `loops: 0` で無限ループ。`view=kira|month|week` の単一ビューは引き続き
+  静止 WebP（`generateView` 経由）
 
 ### src/renderer/graph.html
 
@@ -193,8 +204,10 @@ Node.js より 2–3 倍高速（`bun src/server.js`）。
 - `view=auto`: クライアント側で単一ビュー WebP（kira / month / week）をサイクル
   時間ごとに `<img>.src` swap し、ドットと画像を完全同期させる。`performance.now()`
   起点の RAF ループ。サイクル長は kira 4s + month 2.5s + week 5s = 11.5s で
-  `webp-generator.js` の dwell time と一致させる。Phase 5 で真の animated WebP が
-  返るようになれば auto はサーバ側動画 1 本に切り替える
+  `webp-generator.js` の dwell time と一致させる。Phase 5 で `/api/graph` が真の
+  animated WebP を返すようになったが、embed.html 側の単一ビュー swap 同期ロジック
+  はそのまま維持している（巨大 animated WebP のロード待ちが iframe で目立ちやすく、
+  単一ビュー pre-warm + クライアント同期の方が体感品質が高いため）
 - `view=kira|month|week`: 単一ビュー WebP を表示し、該当ドットだけ active
 - ドットクリック / Enter / Space: auto 同期を停止し、CSS opacity フェード
   （400ms ease-in-out）で単一ビュー WebP に差し替え。`swapSeq` トークンで
@@ -225,7 +238,7 @@ NODE_ENV=development
 
 ## デプロイ
 
-最終的なホスティング先は **Cloudflare**。Hono 採用により Workers / Pages への移行は容易だが、現状は Puppeteer に依存するため `@hono/node-server` で Node ランタイムを使う。Workers 化は別フェーズで検討する。
+最終的なホスティング先は **Cloudflare**。Hono 採用により Workers / Pages への移行は容易だが、現状は Puppeteer + Sharp（libvips ネイティブバイナリ）に依存するため `@hono/node-server` で Node ランタイムを使う。Cloudflare Workers では Puppeteer / Sharp はそのまま動かないため、Pages + 別 Worker での画像生成 microservice 化が必要（別フェーズ）。
 
 ## 参考リンク
 
@@ -233,4 +246,5 @@ NODE_ENV=development
 - [Puppeteer API](https://pptr.dev/)
 - [Three.js Docs](https://threejs.org/docs/)
 - [Sharp Docs](https://sharp.pixelplumbing.com/)
+- [node-webpmux](https://www.npmjs.com/package/node-webpmux)
 - [Bun Docs](https://bun.sh/docs)

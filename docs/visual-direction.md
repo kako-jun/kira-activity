@@ -177,12 +177,21 @@ iframe 用 UI:
 > `/api/graph` を読み込ませる。`view=auto` のときは embed 側がクライアントサイドで
 > 単一ビュー WebP（kira / month / week）をサイクル時間ごとに `<img>.src` ごと swap し、
 > ドットと画像を完全同期させる（`performance.now()` 起点 RAF ループ + fade swap）。
-> Phase 5 で webp-generator が真の animated WebP を返すようになれば、auto モードは
-> サーバ側の動画 1 本に切り替える。`view=kira|month|week` のときは単一ビュー WebP
-> を表示し、該当ドットだけ active になる。ドットクリックは auto 同期を停止し、
-> CSS opacity フェード（400ms ease-in-out）で単一ビュー WebP に切り替わる。
-> 読み込み待ちを隠すため、3 つの単一ビュー（kira + month + week）を初期 load 時に
-> 並列 pre-warm する（`auto` は embed 側で使わないので除外）。
+> `view=kira|month|week` のときは単一ビュー WebP を表示し、該当ドットだけ active になる。
+> ドットクリックは auto 同期を停止し、CSS opacity フェード（400ms ease-in-out）で
+> 単一ビュー WebP に切り替わる。読み込み待ちを隠すため、3 つの単一ビュー（kira +
+> month + week）を初期 load 時に並列 pre-warm する（`auto` は embed 側で使わないので除外）。
+
+> **Phase 5 status:** 実装済み。`/api/graph?view=auto` は sharp で
+> kira / month / week の 3 フレームをそれぞれ静止 WebP に encode したあと、
+> `node-webpmux` で VP8X + ANIM + ANMF×3 の真の animated WebP コンテナに
+> muxing する。sharp 単体では静止フレーム配列から animated WebP を生成
+> できない（animated 出力は既に animated な入力の再エンコードのみ対応）ため
+> muxer を分離している。per-frame `delay` は embed 側の `VIEW_DELAYS` と一致
+> （`[4000, 2500, 5000]` ms）、`loops: 0` で無限ループ。単一ビューエクスポート
+> （`view=kira|month|week`）は引き続き静止 WebP。embed.html の単一ビュー swap
+> 同期ロジックは Phase 4 のまま維持しており、animated WebP は GitHub プロフィール
+> / README 配置用の正本として機能する。
 
 ## Information Architecture
 
@@ -212,14 +221,26 @@ iframe 用 UI:
 
 ## Rendering Notes
 
-現状の実装では `/api/graph` が実質 static WebP を返している。これは MVP 要件を満たしていないため、最優先で改める。
+`/api/graph` は Phase 5 で真の animated WebP に対応済み。`view=auto`（デフォルト）は
+sharp で各フレームを静止 WebP に encode したあと、node-webpmux で kira / month / week
+の 3 フレームを 1 枚の animated WebP（VP8X + ANIM + ANMF×3）に muxing して返す。
+per-frame delay は embed の VIEW_DELAYS と揃えている。node-webpmux は JS +
+WebAssembly 実装でネイティブビルド依存はないが、ライセンスは LGPL-3.0-or-later
+の点に注意（kira-activity 自身は MIT）。
 
 優先順位:
 
-1. 真の animated WebP 化
+1. ~~真の animated WebP 化~~（Phase 5 完了: sharp で frame encode + node-webpmux で muxing）
 2. ~~`kira` ビューを Kira Screen として再設計~~（Phase 2 完了: surface + wireframe + peak edge）
 3. ~~`week` ビューを Weekly Overlay 主役の見た目に再設計~~（Phase 3 完了: 7×24 累積オーバーレイ）
 4. ~~`month` ビューを Month View として再定義~~（Phase 3 完了: Sun..Sat カレンダー + per-cell 24h strip）
+
+### Cloudflare hosting note
+
+sharp / libvips はネイティブ依存（C++ + libvips バイナリ）のため Cloudflare Workers では
+動作不可。Cloudflare へ移すなら、Pages + 別 Worker 構成にし、画像生成は別の
+microservice（Node ランタイム or Workers Containers）に切り出す必要がある。これは
+Phase 5 のスコープ外で、別フェーズとして検討する。
 
 ## Terminology
 

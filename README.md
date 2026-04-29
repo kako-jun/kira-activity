@@ -31,10 +31,9 @@ npm start
 
 `/embed` は `/api/graph` を `<img>` として読み込む。`view=auto` のときは embed 側が
 クライアントサイドで単一ビュー WebP（`kira` / `month` / `week`）をサイクル時間ごとに
-swap し、下部のカルーセルドットと画像を完全同期させる（Phase 5 で webp-generator が
-真の animated WebP を返すようになれば、auto モードはそれを使うよう移行する）。
-ドットをクリックすると自動再生を停止して該当ビューの単一 WebP に opacity フェードで
-切り替わる。`view=kira|month|week` を URL に渡すと最初から特定モードに固定できる。
+swap し、下部のカルーセルドットと画像を完全同期させる。ドットをクリックすると自動再生を
+停止して該当ビューの単一 WebP に opacity フェードで切り替わる。`view=kira|month|week`
+を URL に渡すと最初から特定モードに固定できる。
 
 ### README に画像として貼る
 
@@ -45,7 +44,7 @@ swap し、下部のカルーセルドットと画像を完全同期させる（
 ## エンドポイント
 
 - `GET /embed` — 正本レンダラー（HTML を返す）
-- `GET /api/graph` — `/embed` の WebP エクスポート
+- `GET /api/graph` — `/embed` の WebP エクスポート。`view=auto`（デフォルト）は kira → month → week をループする真の animated WebP、`view=kira|month|week` は単一ビューの静止 WebP
 - `GET /health` — ヘルスチェック
 
 ## 共有クエリパラメータ
@@ -92,7 +91,7 @@ swap し、下部のカルーセルドットと画像を完全同期させる（
 
 - Node.js / Bun + Hono (`@hono/node-server`)
 - Puppeteer + Three.js
-- Sharp
+- Sharp（フレームを静止 WebP に encode）+ node-webpmux（animated WebP の muxing）
 
 ## デプロイ
 

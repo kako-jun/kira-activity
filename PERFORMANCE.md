@@ -206,9 +206,15 @@ For **high traffic** (> 100 req/min):
 - Process large datasets faster
 - Potential 5-10x speedup for kira / week views
 
-### 3. **WebP Animation Support**
-- Currently returning static image (last frame only)
-- True animation would be 4x smaller file size
+### 3. ~~**WebP Animation Support**~~ (Phase 5 完了)
+- ~~Currently returning static image (last frame only)~~
+- Phase 5 で **sharp（フレーム単体の静止 WebP encode）+ node-webpmux（VP8X/ANIM/ANMF
+  の muxing）** により真の animated WebP に対応済み。sharp 単体では静止フレーム
+  配列から animated WebP を生成できないため muxer を分離している
+- JS + WebAssembly の muxer 段で +50〜200ms 程度（3 フレームを mux するだけ、
+  ネイティブビルド依存なし。node-webpmux のライセンスは LGPL-3.0-or-later）。
+  上の Bun ベンチマーク数値（4.1s / 5.9s）はおおむね維持されるが、
+  `/api/graph?view=auto` のみ若干上振れする点に注意
 
 ### 4. **GPU Acceleration**
 - Use `--enable-gpu` for Three.js rendering
