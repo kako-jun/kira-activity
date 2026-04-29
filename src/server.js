@@ -8,6 +8,7 @@ import { createHash } from 'crypto';
 import { generateAnimatedWebP, generateView, shutdown as shutdownRenderer } from './renderer/webp-generator.js';
 import { getPalette, sanitizePalette, VALID_THEMES as PALETTE_THEMES } from './renderer/palette.js';
 import { CacheManager } from './services/cache.js';
+import { SUPPORTED_SOURCES } from './services/registry.js';
 
 dotenv.config();
 
@@ -17,8 +18,11 @@ const __dirname = dirname(__filename);
 const PORT = Number(process.env.PORT) || 3000;
 const cache = new CacheManager();
 
-// Shared query param contract
-const VALID_SOURCES = new Set(['github', 'hatena', 'rss']);
+// Shared query param contract.
+// VALID_SOURCES is derived from the provider registry — adding a new source
+// is a single edit to services/registry.js and the route layer picks it up
+// automatically.
+const VALID_SOURCES = new Set(SUPPORTED_SOURCES);
 const VALID_THEMES = new Set(PALETTE_THEMES);
 const VALID_SIZES = new Set(['small', 'medium', 'large']);
 const VALID_VIEWS = new Set(['kira', 'month', 'week', 'auto']);
