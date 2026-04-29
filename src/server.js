@@ -35,7 +35,9 @@ const USER_PATTERN_LABEL = /^[\p{L}\p{N}\p{P}\s_-]{1,64}$/u;
 // than RFC's de-facto 2048: Cloudflare and most CDNs reject URLs longer
 // than that for cached endpoints, and a feed URL that doesn't fit is a
 // strong signal of abuse.
-const FEED_URL_PATTERN = /^https?:\/\/[^\s]{1,1024}$/i;
+// `[^\s]{1,1016}` after `https?://` (max 8 chars) keeps the total URL <= 1024
+// chars, matching the documented 1 KB cap.
+const FEED_URL_PATTERN = /^https?:\/\/[^\s]{1,1016}$/i;
 
 function parseSharedParams(c) {
   const user = c.req.query('user');
