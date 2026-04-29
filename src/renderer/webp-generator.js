@@ -4,25 +4,12 @@ import webpmux from 'node-webpmux';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { GitHubClient } from '../services/github.js';
-import { HatenaBookmarkClient } from '../services/hatena.js';
-import { RssAtomFeedClient } from '../services/rss.js';
+import { fetchActivity } from '../services/registry.js';
 import { DataProcessor } from '../utils/data-processor.js';
 import { getPalette, sanitizePalette } from './palette.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const githubClient = new GitHubClient();
-const hatenaClient = new HatenaBookmarkClient();
-const rssClient = new RssAtomFeedClient();
-
-// In-flight request deduplication for source=rss. /embed pre-warms three
-// single-view WebPs in parallel, so without dedup we'd fire three identical
-// fetches at the upstream feed within milliseconds. Sharing one Promise
-// keyed by feed URL collapses that to a single fetch; the entry is cleared
-// once the Promise settles so a later cache miss can refetch normally.
-const inFlightFeeds = new Map();
 
 // Singleton browser instance for better performance
 let browserInstance = null;
@@ -71,8 +58,8 @@ async function getBrowser() {
  * Generate animated WebP cycling through kira -> month -> week.
  * Used by /api/graph?view=auto (the canonical export of /embed).
  *
- * @param {string} username - Username (GitHub or Hatena)
- * @param {string} source - 'github' or 'hatena'
+ * @param {string} username - User identifier or display label (depends on source)
+ * @param {string} source - SUPPORTED_SOURCES のいずれか ('github' | 'hatena' | 'rss')
  * @param {string} theme - Visualization theme. VALID_THEMES のいずれか
  *   ('film' | 'github' | 'hatena' | 'sepia' | 'mono')。それ以外は film にフォールバック。
  * @param {string} size - 'small' | 'medium' | 'large'
@@ -116,7 +103,7 @@ export async function generateAnimatedWebP(username, source, theme, size, palett
  * Used by /api/graph?view=kira|month|week.
  *
  * @param {string} username
- * @param {string} source - 'github' | 'hatena'
+ * @param {string} source - SUPPORTED_SOURCES のいずれか ('github' | 'hatena' | 'rss')
  * @param {'kira'|'month'|'week'} view
  * @param {string} theme - VALID_THEMES のいずれか
  *   ('film' | 'github' | 'hatena' | 'sepia' | 'mono')。それ以外は film にフォールバック。
@@ -149,43 +136,12 @@ export async function generateView(username, source, view, theme, size, palette,
 }
 
 /**
- * Fetch activity data from source.
- * For source='rss', the `feed` URL is required and is used both for the
- * actual fetch and as the implicit identity (the `username` becomes a
- * display label only).
+ * Fetch normalized activity via the provider registry.
+ * Source-specific branches now live in services/registry.js, not here.
  */
 async function fetchActivityData(username, source, feed) {
   console.log(`Fetching ${source} data for ${username}...`);
-
-  if (source === 'github') {
-    return await githubClient.getComprehensiveActivity(username);
-  }
-  if (source === 'hatena') {
-    return await hatenaClient.getComprehensiveActivity(username);
-  }
-  if (source === 'rss') {
-    if (!feed) {
-      throw new Error('feed URL required for source=rss');
-    }
-    // Dedupe concurrent fetches against the same feed URL. The first caller
-    // installs a Promise; subsequent callers (e.g. parallel pre-warm of
-    // kira / month / week) await the same Promise. The finally clears the
-    // entry so cache misses after this batch can fetch fresh.
-    const existing = inFlightFeeds.get(feed);
-    if (existing) {
-      return await existing;
-    }
-    const promise = (async () => {
-      try {
-        return await rssClient.getComprehensiveActivity(feed, username);
-      } finally {
-        inFlightFeeds.delete(feed);
-      }
-    })();
-    inFlightFeeds.set(feed, promise);
-    return await promise;
-  }
-  throw new Error(`Unknown source: ${source}`);
+  return await fetchActivity(source, { user: username, feed });
 }
 
 /**
