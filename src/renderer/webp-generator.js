@@ -88,7 +88,13 @@ export async function generateAnimatedWebP(username, source, theme, size, palett
   const renderTime = Date.now() - startTime;
   console.log(`Rendered ${frames.length} frames in ${renderTime}ms (parallel)`);
 
-  const webpBuffer = await createWebPFromFrames(frames);
+  // Per-frame delays in ms, matching ALL_VIEWS order (kira, month, week).
+  // These are the same dwell times used by /embed VIEW_DELAYS and the
+  // per-scene waitTime in renderScene(), so the iframe and the export
+  // feel identical.
+  const FRAME_DELAYS = [4000, 2500, 5000];
+
+  const webpBuffer = await createAnimatedWebP(frames, FRAME_DELAYS);
 
   console.log(`Generated animated WebP (${webpBuffer.length} bytes)`);
   return webpBuffer;
@@ -203,23 +209,29 @@ async function renderScene(processedData, scene, theme, size, palette) {
 }
 
 /**
- * Convert rendered frames into a single WebP (parallel conversion).
- * NOTE: sharp does not produce true animated WebP yet, so this returns
- * the last frame as a static WebP. True animation is tracked separately
- * (will require ffmpeg/libwebp), at which point per-frame delays will be
- * reintroduced.
+ * Combine frames (one per view) into a single animated WebP.
+ *
+ * Sharp 0.34+ accepts an array of input buffers with `{ join: { animated: true } }`,
+ * which stacks them as pages of a multi-page image. We then encode WebP with
+ * per-frame `delay` and `loop: 0` (infinite). Frames must already share W x H
+ * (Puppeteer renders all views with the same viewport via getSizeDimensions).
+ *
+ * Per-frame delays must match the order of frames (here ALL_VIEWS =
+ * kira -> month -> week).
  */
-async function createWebPFromFrames(frames) {
-  const webpFrames = await Promise.all(
-    frames.map((frame) =>
-      sharp(frame)
-        .webp({ quality: 80, effort: 4 })
-        .toBuffer()
-    )
-  );
+async function createAnimatedWebP(frames, delays) {
+  if (!frames.length) {
+    throw new Error('No frames to combine');
+  }
 
-  console.log('Note: returning last frame as static WebP. True animated WebP requires ffmpeg/libwebp.');
-  return webpFrames[webpFrames.length - 1];
+  return sharp(frames, { join: { animated: true } })
+    .webp({
+      quality: 80,
+      effort: 4,
+      delay: delays,
+      loop: 0
+    })
+    .toBuffer();
 }
 
 /**
