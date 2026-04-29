@@ -224,7 +224,9 @@ iframe 用 UI:
 `/api/graph` は Phase 5 で真の animated WebP に対応済み。`view=auto`（デフォルト）は
 sharp で各フレームを静止 WebP に encode したあと、node-webpmux で kira / month / week
 の 3 フレームを 1 枚の animated WebP（VP8X + ANIM + ANMF×3）に muxing して返す。
-per-frame delay は embed の VIEW_DELAYS と揃えている。
+per-frame delay は embed の VIEW_DELAYS と揃えている。node-webpmux は JS +
+WebAssembly 実装でネイティブビルド依存はないが、ライセンスは LGPL-3.0-or-later
+の点に注意（kira-activity 自身は MIT）。
 
 優先順位:
 

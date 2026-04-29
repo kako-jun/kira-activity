@@ -180,8 +180,9 @@ Node.js より 2–3 倍高速（`bun src/server.js`）。
 - 並列フレーム生成
 - 公開 view 名 → 内部 scene 番号の変換はここに集中
 - **Phase 5**: `createAnimatedWebP(frames, delays)` は sharp で各フレームを
-  個別の静止 WebP にエンコードしたあと、`node-webpmux`（pure JS、ネイティブ
-  依存なし）で VP8X + ANIM + ANMF×N の真の animated WebP コンテナに muxing する。
+  個別の静止 WebP にエンコードしたあと、`node-webpmux`（JS + WebAssembly、
+  ネイティブビルド依存なし、ライセンスは LGPL-3.0-or-later）で VP8X + ANIM
+  + ANMF×N の真の animated WebP コンテナに muxing する。
   sharp 自体は静止フレーム配列から animated WebP を生成できない（animated 出力は
   既に animated な入力の再エンコードのみ対応、`join: { animated: true }` は
   単ページ WebP に潰れる）ため、muxer を分離している。per-frame `delay` は
