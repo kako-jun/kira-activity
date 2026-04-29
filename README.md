@@ -12,6 +12,12 @@ Death Note L 風のアクティビティ可視化ウィジェット。GitHub や
    └─ /api/graph ──── /embed?view=auto を WebP として書き出すエクスポート層
 ```
 
+データソース（`github` / `hatena` / `rss`）は `src/services/registry.js` の
+**provider registry** に共通契約 `fetchActivity({ user, feed })` で登録されており、
+ルート層・レンダラ層からはソース固有の分岐が消えている。新しいデータソースを足したい
+ときは registry に 1 エントリを追加するだけ（詳細は `CLAUDE.md` の
+「Provider アーキテクチャ」を参照）。
+
 ## 使い方
 
 ```bash

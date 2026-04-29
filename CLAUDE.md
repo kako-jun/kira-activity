@@ -35,6 +35,7 @@ kira-activity/
 ├── src/
 │   ├── server.js                 # Hono サーバー（エントリーポイント）
 │   ├── services/
+│   │   ├── registry.js           # provider registry + 共通 fetchActivity dispatcher
 │   │   ├── github.js             # GitHub API クライアント
 │   │   ├── hatena.js             # はてなブックマーク API
 │   │   ├── rss.js                # 汎用 RSS/Atom/RDF フィードクライアント
@@ -48,6 +49,69 @@ kira-activity/
 ├── package.json
 └── .env.example
 ```
+
+## Provider アーキテクチャ
+
+データソース層は `src/services/registry.js` の **provider registry** に集約されている。
+ルーティング層・レンダリング層からはソース固有の分岐が完全に消えており、新しいデータ
+ソースを追加するには registry に 1 エントリ足すだけで済む。
+
+```
+server.js ──> services/registry.js ──┬── github (GitHubClient adapter)
+   │              │                  ├── hatena (HatenaBookmarkClient adapter)
+   │              │                  └── rss    (RssAtomFeedClient adapter)
+   │              │
+   │              └── fetchActivity(source, { user, feed }) — 共通契約
+   ▼
+webp-generator.js / data-processor.js
+   ↑
+   └── ソース固有の if/else は持たない（normalized activity だけを消費）
+```
+
+### Provider contract
+
+```js
+{
+  source: 'github',
+  fetchActivity: async ({ user, feed }) => NormalizedActivity
+}
+```
+
+`NormalizedActivity` の target shape:
+
+```js
+{
+  username,
+  totalActivity,
+  events: [
+    { date, type, title?, url?, repo?, meta? }
+  ],
+  fetchedAt
+}
+```
+
+現状の各 client（`GitHubClient` / `HatenaBookmarkClient` / `RssAtomFeedClient`）の
+`getComprehensiveActivity` 戻り値はこの shape にすでに十分互換で、`events[]` 内の
+個別エントリは `event.message || event.title || event.comment || 'Activity'` のような
+data-processor 側のフォールバックを通って消費される。target shape は forward-looking な
+ガイドラインで、後方互換のために既存の event 形を強制変換はしない。
+
+### `VALID_SOURCES` の真の source-of-truth
+
+`server.js` の `VALID_SOURCES` は `registry.js` の `SUPPORTED_SOURCES` から導出して
+いる。新しい source を増やすときは:
+
+1. `services/registry.js` の `PROVIDERS` に 1 エントリを追加（必要なら新しい client を import）
+2. それだけ。route / webp-generator / palette は触らない
+
+### in-flight dedup
+
+`/embed` は kira / month / week の 3 ビュー WebP を並列に pre-warm するため、同じ
+`(source, user, feed)` に対して 3 連射の fetch が走る可能性がある。registry の
+`fetchActivity` は `inFlight: Map<key, Promise>` で in-flight な Promise を共有し、
+upstream fetch を 1 回に集約する。`finally` で entry を消すので、エラーが永続キャッシュ
+に化けることはない。以前 webp-generator にあった `inFlightFeeds`（rss 専用）は
+registry に統合済み — 全 source に対して同じ dedup ロジックが効く。
 
 ## エンドポイント
 

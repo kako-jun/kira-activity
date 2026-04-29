@@ -254,6 +254,10 @@ WebAssembly 実装でネイティブビルド依存はないが、ライセン�
 2. ~~`kira` ビューを Kira Screen として再設計~~（Phase 2 完了: surface + wireframe + peak edge）
 3. ~~`week` ビューを Weekly Overlay 主役の見た目に再設計~~（Phase 3 完了: 7×24 累積オーバーレイ）
 4. ~~`month` ビューを Month View として再定義~~（Phase 3 完了: Sun..Sat カレンダー + per-cell 24h strip）
+5. ~~ソース層を provider registry に統合~~（Phase 7 完了: `services/registry.js` に
+   `github` / `hatena` / `rss` を共通 contract で登録。ルート / レンダラから source 別
+   分岐が消え、新 source は registry に 1 エントリで足せる。in-flight dedup も registry
+   に集約され、全 source で `(source, user, feed)` 単位に効く）
 
 ### Cloudflare hosting note
 
