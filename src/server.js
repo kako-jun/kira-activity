@@ -195,8 +195,8 @@ app.get('/image', async (c) => {
     // multiple labels share one cached fetch and prevents trivial cache
     // pollution by varying `user` against the same feed.
     const cacheKey = source === 'rss'
-      ? `graph_rss_${theme}_${size}_${view}${feedKey}`
-      : `graph_${source}_${user}_${theme}_${size}_${view}`;
+      ? `image_rss_${theme}_${size}_${view}${feedKey}`
+      : `image_${source}_${user}_${theme}_${size}_${view}`;
     const cached = cache.get(cacheKey);
     if (cached) {
       return new Response(cached, {

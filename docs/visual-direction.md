@@ -211,7 +211,7 @@ iframe 用 UI:
 - 手動切り替え
 - モード固定 URL
 
-> Phase 4 で完了。`/embed` が `/image` 駆動の対話的カルーセルとして動く。
+> Phase 4 で完了。`/viewer` が `/image` 駆動の対話的カルーセルとして動く。
 
 ### Phase 3
 
@@ -237,7 +237,7 @@ iframe 用 UI:
 > metadata IP に解決されるホストへの接続を拒否（SSRF 対策）し、リダイレクト先も
 > 再検証する。`<!DOCTYPE>` / `<!ENTITY>` を含む body は xml2js に渡す前に reject
 > する（XXE / billion-laughs 対策）。URL 長は 1024 文字、フェッチサイズは 5 MB
-> 上限。`/embed` の 3 ビュー pre-warm は in-flight Map で 1 fetch に集約。
+> 上限。`/viewer` の 3 ビュー pre-warm は in-flight Map で 1 fetch に集約。
 
 ## Rendering Notes
 
