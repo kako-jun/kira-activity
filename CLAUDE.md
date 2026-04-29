@@ -14,16 +14,16 @@ L がキラの活動パターンを段階的に分析していくシーンを再
 
 ## アーキテクチャ
 
-`/embed` を**正本のレンダラー**とし、`/api/graph` はその上に乗る WebP エクスポート層。
+`/viewer` を**正本のレンダラー**とし、`/image` はその上に乗る WebP エクスポート層。
 
 ```
-Client ──> Hono Server ──┬── /embed       (HTML, iframe 用)
+Client ──> Hono Server ──┬── /viewer      (HTML, iframe 用)
                          │       │
                          │       └── 同じクエリ仕様
                          │              │
-                         └── /api/graph (Puppeteer + Sharp で /embed?view=auto を WebP 化)
+                         └── /image     (Puppeteer + Sharp で /viewer?view=auto を WebP 化)
                                 ↑
-                                └── /embed?view=kira|month|week なら単一ビュー WebP
+                                └── /viewer?view=kira|month|week なら単一ビュー WebP
 ```
 
 データ取得層は `services/github.js` / `services/hatena.js`、変換は `utils/data-processor.js`、描画は `renderer/graph.html`。
@@ -41,7 +41,7 @@ kira-activity/
 │   │   ├── rss.js                # 汎用 RSS/Atom/RDF フィードクライアント
 │   │   └── cache.js              # キャッシュ管理
 │   ├── renderer/
-│   │   ├── embed.html            # /embed の HTML テンプレート（Phase 0 placeholder）
+│   │   ├── embed.html            # /viewer の HTML テンプレート（ファイル名は git history 都合で温存）
 │   │   ├── graph.html            # Three.js 可視化テンプレート（Puppeteer 用）
 │   │   └── webp-generator.js     # Puppeteer + WebP 生成
 │   └── utils/
@@ -112,7 +112,7 @@ policy は別軸。
 
 ### in-flight dedup
 
-`/embed` は kira / month / week の 3 ビュー WebP を並列に pre-warm するため、同じ
+`/viewer` は kira / month / week の 3 ビュー WebP を並列に pre-warm するため、同じ
 `(source, user, feed)` に対して 3 連射の fetch が走る可能性がある。registry の
 `fetchActivity` は `inFlight: Map<key, Promise>` で in-flight な Promise を共有し、
 upstream fetch を 1 回に集約する。`finally` で entry を消すので、エラーが永続キャッシュ
@@ -127,14 +127,15 @@ feed のみで keying し、同じ feed を別ラベルで叩く並列リクエ�
 |---|---|
 | `GET /` | デモページ（HTML） |
 | `GET /health` | ヘルスチェック |
-| `GET /embed` | 正本レンダラー（HTML） |
-| `GET /api/graph` | `/embed` の WebP エクスポート |
+| `GET /viewer` | 正本レンダラー（HTML） |
+| `GET /image` | `/viewer` の WebP エクスポート |
 
-旧 `/api/frame` は廃止。単一ビュー出力は `/api/graph?view=kira|month|week` を使う。
+旧 `/api/frame` は廃止。単一ビュー出力は `/image?view=kira|month|week` を使う。
+旧 `/embed` / `/api/graph` も Phase 8 で `/viewer` / `/image` に改名済み（後方互換なし）。
 
 ## 共有クエリパラメータ
 
-`/embed` と `/api/graph` で同じ仕様。
+`/viewer` と `/image` で同じ仕様。
 
 - `user` (必須。`source=rss` のときは表示用ラベル)
 - `source` (`github` | `hatena` | `rss`、default `github`)
@@ -176,7 +177,7 @@ XSS は既存の `JSON.stringify(...).replace(/</g, '\\u003c')` 注入パター�
 - **XXE 対策**: 取得した body の先頭 4 KB に `<!DOCTYPE` / `<!ENTITY` が含まれていたら
   xml2js に渡す前に reject する（billion-laughs / 外部実体展開対策）
 - **URL 長制限**: `feed` は 1024 文字以内（Cloudflare 等の CDN 長さ制限を考慮）
-- **in-flight dedup**: `/embed` の 3 ビュー pre-warm が同じ feed に対して 3 連射しても、
+- **in-flight dedup**: `/viewer` の 3 ビュー pre-warm が同じ feed に対して 3 連射しても、
   webp-generator の module-level `inFlightFeeds: Map<feedUrl, Promise>` が単一の
   Promise を共有するので fetch は 1 回に集約される
 - **エラー応答**: `source=rss` 経路の 500 は `details: 'feed fetch failed'` の
@@ -206,8 +207,8 @@ accent / highlight）× 5 テーマで定義する。
   `hatena`→くすんだ青）。background / ink / grid / highlight はフィルム配色のまま。
 - 他のテーマ（`github` / `hatena` / `sepia` / `mono`）はテーマ自身の配色を優先し、
   source による accent 切り替えは行わない。
-- パレットはサーバ側で 1 回だけ resolve し、`/embed` には CSS 変数（`--kira-bg` ほか）
-  として、`/api/graph` には `window.RENDER_PALETTE` として注入される。
+- パレットはサーバ側で 1 回だけ resolve し、`/viewer` には CSS 変数（`--kira-bg` ほか）
+  として、`/image` には `window.RENDER_PALETTE` として注入される。
 - CSS 注入の安全性は `sanitizePalette()` が `^#[0-9a-fA-F]{6}$` を保証することで担保。
   JS 注入は既存の `JSON.stringify(...).replace(/</g, '\\u003c')` パターン。
 
@@ -311,13 +312,13 @@ Node.js より 2–3 倍高速（`bun src/server.js`）。
 
 ### src/renderer/embed.html
 
-- `/embed` が返す HTML
-- `<img id="kira-image">` に `/api/graph` を読み込ませて表示する。Three.js は
+- `/viewer` が返す HTML（ファイル名 `embed.html` は git history 都合で温存）
+- `<img id="kira-image">` に `/image` を読み込ませて表示する。Three.js は
   サーバ側 Puppeteer がすでに WebP 化しているので、iframe では再実行しない
 - `view=auto`: クライアント側で単一ビュー WebP（kira / month / week）をサイクル
   時間ごとに `<img>.src` swap し、ドットと画像を完全同期させる。`performance.now()`
   起点の RAF ループ。サイクル長は kira 4s + month 2.5s + week 5s = 11.5s で
-  `webp-generator.js` の dwell time と一致させる。Phase 5 で `/api/graph` が真の
+  `webp-generator.js` の dwell time と一致させる。Phase 5 で `/image` が真の
   animated WebP を返すようになったが、embed.html 側の単一ビュー swap 同期ロジック
   はそのまま維持している（巨大 animated WebP のロード待ちが iframe で目立ちやすく、
   単一ビュー pre-warm + クライアント同期の方が体感品質が高いため）

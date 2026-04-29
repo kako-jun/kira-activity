@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KIRA Activity - Embed</title>
+  <title>KIRA Activity - Viewer</title>
   <style>
     :root {
       --kira-bg: __PALETTE_BG__;
@@ -118,9 +118,12 @@
 
   <script>
     // Server-injected params (placeholders replaced at request time).
+    // This template (on-disk filename embed.html, kept for git history
+    // continuity) is served at the public route /viewer and pulls images
+    // from /image.
     // `feed` is the absolute URL of an external RSS/Atom/RDF feed. It is a
     // string only when source === 'rss'; for github/hatena the server
-    // injects null so the client never appends it to /api/graph URLs.
+    // injects null so the client never appends it to /image URLs.
     const PARAMS = {
       user: __USER__,
       source: __SOURCE__,
@@ -136,7 +139,7 @@
     // Ordered to match the auto-loop ordering in webp-generator.js.
     const VIEWS = ['kira', 'month', 'week'];
     // Per-view dwell time in ms. Kept in sync with webp-generator.js waitTime
-    // so the iframe carousel and the /api/graph animated WebP play at the
+    // so the iframe carousel and the /image animated WebP play at the
     // same rhythm. kira (3D) sits 4s as the headline; month renders quickly
     // so 2.5s is enough; week needs the full layering animation to read, so
     // 5s.
@@ -144,11 +147,11 @@
     const CYCLE_TOTAL = VIEWS.reduce((s, v) => s + VIEW_DELAYS[v], 0);
 
     /**
-     * Build a /api/graph URL for the current PARAMS, swapping in the requested
+     * Build a /image URL for the current PARAMS, swapping in the requested
      * view. URL-encoding is mandatory because user names can contain `-` etc.,
      * and we want the same query contract as the server-side parser.
      */
-    function graphUrl(view) {
+    function imageUrl(view) {
       const qs = new URLSearchParams({
         user: PARAMS.user,
         source: PARAMS.source,
@@ -159,7 +162,7 @@
       // Carry the feed URL through so single-view swaps and pre-warming
       // hit the same cache entry the server keyed by feed.
       if (PARAMS.feed) qs.set('feed', PARAMS.feed);
-      return '/api/graph?' + qs.toString();
+      return '/image?' + qs.toString();
     }
 
     const img = document.getElementById('kira-image');
@@ -172,10 +175,10 @@
 
     /**
      * Compute which view the auto carousel is currently showing.
-     * In Phase 4 the embed cycles through single-view WebPs client-side
+     * In Phase 4 the viewer cycles through single-view WebPs client-side
      * (kira -> month -> week), swapping the <img src> at each boundary so
      * dots and image stay perfectly in sync. Phase 5 will replace this with
-     * a true animated WebP from /api/graph?view=auto.
+     * a true animated WebP from /image?view=auto.
      *
      * Using `performance.now()` keeps the loop monotonic (not affected by
      * wall-clock changes) and safe inside iframes. The double-modulo guards
@@ -213,7 +216,7 @@
       setActiveDot(VIEWS[0]);
       // Initial paint: skip the fade so the user sees content immediately
       // when the iframe opens. Subsequent transitions go through swapImage().
-      img.src = graphUrl(VIEWS[0]);
+      img.src = imageUrl(VIEWS[0]);
       autoTick();
     }
 
@@ -240,7 +243,7 @@
       // is visible but the user does not stare at a blank panel.
       setTimeout(() => {
         if (mySeq !== swapSeq) return;
-        img.src = graphUrl(view);
+        img.src = imageUrl(view);
       }, 200);
     }
 
@@ -258,14 +261,14 @@
 
     // Pre-warm the cache for the three single-view WebPs so manual switches
     // and auto carousel transitions are responsive. The server caches
-    // /api/graph results for an hour, so these requests are effectively free
+    // /image results for an hour, so these requests are effectively free
     // after the first visitor for a given user. `auto` is intentionally
-    // excluded: the embed never requests it now that the carousel walks the
+    // excluded: the viewer never requests it now that the carousel walks the
     // single-view URLs itself.
     function prewarm() {
       ['kira', 'month', 'week'].forEach((v) => {
         const pre = new Image();
-        pre.src = graphUrl(v);
+        pre.src = imageUrl(v);
       });
     }
 
@@ -275,7 +278,7 @@
     if (PARAMS.view === 'auto') {
       startAutoSync();
     } else {
-      img.src = graphUrl(PARAMS.view);
+      img.src = imageUrl(PARAMS.view);
       setActiveDot(PARAMS.view);
     }
     prewarm();

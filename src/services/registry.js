@@ -85,7 +85,7 @@ export function getProvider(source) {
 
 /**
  * In-flight deduplication: when multiple concurrent requests target the same
- * (source, user, feed) tuple — typically the embed pre-warming kira/month/week
+ * (source, user, feed) tuple — typically the viewer pre-warming kira/month/week
  * in parallel — we collapse them onto a single upstream fetch. Each entry is
  * removed in `finally` so that errors do not poison the cache.
  */

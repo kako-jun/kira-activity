@@ -4,12 +4,12 @@ Death Note L 風のアクティビティ可視化ウィジェット。GitHub や
 
 ## アーキテクチャ
 
-`/embed` を**正本のレンダラー**とし、`/api/graph` はその上に乗る WebP エクスポート層。同じクエリ仕様を両方で共有する。
+`/viewer` を**正本のレンダラー**とし、`/image` はその上に乗る WebP エクスポート層。同じクエリ仕様を両方で共有する。
 
 ```
-/embed  ──── canonical renderer (HTML, iframe 用)
+/viewer ──── canonical renderer (HTML, iframe 用)
    │
-   └─ /api/graph ──── /embed?view=auto を WebP として書き出すエクスポート層
+   └─ /image ──── /viewer?view=auto を WebP として書き出すエクスポート層
 ```
 
 データソース（`github` / `hatena` / `rss`）は `src/services/registry.js` の
@@ -32,10 +32,10 @@ npm start
 ### iframe で埋め込む
 
 ```html
-<iframe src="https://example.com/embed?user=YOUR_USERNAME"></iframe>
+<iframe src="https://example.com/viewer?user=YOUR_USERNAME"></iframe>
 ```
 
-`/embed` は `/api/graph` を `<img>` として読み込む。`view=auto` のときは embed 側が
+`/viewer` は `/image` を `<img>` として読み込む。`view=auto` のときは viewer 側が
 クライアントサイドで単一ビュー WebP（`kira` / `month` / `week`）をサイクル時間ごとに
 swap し、下部のカルーセルドットと画像を完全同期させる。ドットをクリックすると自動再生を
 停止して該当ビューの単一 WebP に opacity フェードで切り替わる。`view=kira|month|week`
@@ -44,18 +44,18 @@ swap し、下部のカルーセルドットと画像を完全同期させる。
 ### README に画像として貼る
 
 ```markdown
-![Activity](https://example.com/api/graph?user=YOUR_USERNAME)
+![Activity](https://example.com/image?user=YOUR_USERNAME)
 ```
 
 ## エンドポイント
 
-- `GET /embed` — 正本レンダラー（HTML を返す）
-- `GET /api/graph` — `/embed` の WebP エクスポート。`view=auto`（デフォルト）は kira → month → week をループする真の animated WebP、`view=kira|month|week` は単一ビューの静止 WebP
+- `GET /viewer` — 正本レンダラー（HTML を返す）
+- `GET /image` — `/viewer` の WebP エクスポート。`view=auto`（デフォルト）は kira → month → week をループする真の animated WebP、`view=kira|month|week` は単一ビューの静止 WebP
 - `GET /health` — ヘルスチェック
 
 ## 共有クエリパラメータ
 
-`/embed` と `/api/graph` で同じクエリ仕様を使う。
+`/viewer` と `/image` で同じクエリ仕様を使う。
 
 | パラメータ | 値 | デフォルト | 説明 |
 |---|---|---|---|
@@ -101,7 +101,7 @@ swap し、下部のカルーセルドットと画像を完全同期させる。
 - `kira` — 曜日 × 時刻の活動量を 3D サーフェスで俯瞰、ピーク時刻が発光ラインで強調
 - `month` — 直近 ~30 日を Sun..Sat 7 列カレンダーとして配置。日セルの濃度で日量、セル右の 24 本ストリップで時刻帯を表現
 - `week` — 7 × 24 のグリッドに週ごとの活動を半透明レイヤーとして累積。同じ時間帯に活動が重なるほど濃くなり、繰り返し bias が見える
-- `auto` — 上記を順に再生するアニメーション（`/api/graph` のデフォルト挙動）
+- `auto` — 上記を順に再生するアニメーション（`/image` のデフォルト挙動）
 
 ### テーマと source-aware accent
 
@@ -117,13 +117,13 @@ swap し、下部のカルーセルドットと画像を完全同期させる。
 
 ## 使用例
 
-- `/embed?user=torvalds` — auto 再生する iframe
-- `/embed?user=torvalds&view=kira` — kira 固定の iframe
-- `/api/graph?user=torvalds` — auto をアニメ WebP として書き出し
-- `/api/graph?user=torvalds&view=week&theme=film&size=large` — 単一ビューの WebP
-- `/api/graph?user=torvalds&source=github&theme=film` — film 配色 + GitHub 緑のアクセント
-- `/api/graph?user=torvalds&source=hatena&theme=film` — film 配色 + はてな青のアクセント
-- `/api/graph?user=foo&source=rss&feed=https%3A%2F%2Fexample.com%2Fatom` — 任意フィードの記事公開時刻を可視化
+- `/viewer?user=torvalds` — auto 再生する iframe
+- `/viewer?user=torvalds&view=kira` — kira 固定の iframe
+- `/image?user=torvalds` — auto をアニメ WebP として書き出し
+- `/image?user=torvalds&view=week&theme=film&size=large` — 単一ビューの WebP
+- `/image?user=torvalds&source=github&theme=film` — film 配色 + GitHub 緑のアクセント
+- `/image?user=torvalds&source=hatena&theme=film` — film 配色 + はてな青のアクセント
+- `/image?user=foo&source=rss&feed=https%3A%2F%2Fexample.com%2Fatom` — 任意フィードの記事公開時刻を可視化
 
 ## 技術スタック
 
