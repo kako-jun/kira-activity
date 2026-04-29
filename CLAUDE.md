@@ -106,7 +106,8 @@ Phase 1 では scene 1..4 内の最も目立つハードコード色（背景・
 1. データ取得（GitHub API / Hatena RSS）
 2. データ変換（4 シーン分のキーに整形 — 内部実装詳細）
 3. 並列レンダリング（Puppeteer + Three.js）
-4. WebP 変換（Sharp）
+4. WebP 変換（各フレーム: Sharp で静止 WebP encode → アニメ化が必要な
+   `view=auto` のみ node-webpmux で 1 枚の animated WebP に mux）
 
 ## パフォーマンス最適化
 
@@ -178,11 +179,15 @@ Node.js より 2–3 倍高速（`bun src/server.js`）。
 - ブラウザインスタンスのシングルトン管理
 - 並列フレーム生成
 - 公開 view 名 → 内部 scene 番号の変換はここに集中
-- **Phase 5**: `createAnimatedWebP(frames, delays)` が sharp 0.34 の
-  `join: { animated: true }` を使って 3 フレームを真の animated WebP に
-  エンコード。per-frame `delay` は ALL_VIEWS の順序（kira → month → week）
-  と一致する `[4000, 2500, 5000]` ms、`loop: 0` で無限ループ。`view=kira|month|week`
-  の単一ビューは引き続き静止 WebP（`generateView` 経由）
+- **Phase 5**: `createAnimatedWebP(frames, delays)` は sharp で各フレームを
+  個別の静止 WebP にエンコードしたあと、`node-webpmux`（pure JS、ネイティブ
+  依存なし）で VP8X + ANIM + ANMF×N の真の animated WebP コンテナに muxing する。
+  sharp 自体は静止フレーム配列から animated WebP を生成できない（animated 出力は
+  既に animated な入力の再エンコードのみ対応、`join: { animated: true }` は
+  単ページ WebP に潰れる）ため、muxer を分離している。per-frame `delay` は
+  ALL_VIEWS の順序（kira → month → week）と一致する `[4000, 2500, 5000]` ms、
+  `loops: 0` で無限ループ。`view=kira|month|week` の単一ビューは引き続き
+  静止 WebP（`generateView` 経由）
 
 ### src/renderer/graph.html
 
@@ -240,4 +245,5 @@ NODE_ENV=development
 - [Puppeteer API](https://pptr.dev/)
 - [Three.js Docs](https://threejs.org/docs/)
 - [Sharp Docs](https://sharp.pixelplumbing.com/)
+- [node-webpmux](https://www.npmjs.com/package/node-webpmux)
 - [Bun Docs](https://bun.sh/docs)

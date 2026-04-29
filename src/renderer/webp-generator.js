@@ -1,5 +1,6 @@
 import puppeteer from 'puppeteer';
 import sharp from 'sharp';
+import webpmux from 'node-webpmux';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -209,29 +210,70 @@ async function renderScene(processedData, scene, theme, size, palette) {
 }
 
 /**
- * Combine frames (one per view) into a single animated WebP.
+ * Combine PNG frames (one per view) into a single animated WebP.
  *
- * Sharp 0.34+ accepts an array of input buffers with `{ join: { animated: true } }`,
- * which stacks them as pages of a multi-page image. We then encode WebP with
- * per-frame `delay` and `loop: 0` (infinite). Frames must already share W x H
- * (Puppeteer renders all views with the same viewport via getSizeDimensions).
+ * Sharp does not support encoding animated WebP from a set of static frames:
+ * its animated output path only works when re-encoding already-animated
+ * input (GIF / animated WebP / multi-page TIFF). `sharp(arr, { join: { animated: true } })`
+ * silently produces a single-page WebP with no VP8X / ANIM / ANMF chunks.
  *
- * Per-frame delays must match the order of frames (here ALL_VIEWS =
- * kira -> month -> week).
+ * We therefore encode each PNG frame as a static lossy WebP via sharp,
+ * then mux them into a true animated WebP container (VP8X + ANIM + N x ANMF)
+ * with node-webpmux (pure JS, no native deps). Delays / loops are set on
+ * the muxer.
+ *
+ * Frames must already share W x H (Puppeteer renders all views with the
+ * same viewport via getSizeDimensions). Per-frame delays must match the
+ * order of frames (here ALL_VIEWS = kira -> month -> week).
+ *
+ * @param {Buffer[]} frames - PNG buffers, one per view
+ * @param {number[]} delays - Per-frame display duration in ms
+ * @returns {Promise<Buffer>} Animated WebP buffer
  */
 async function createAnimatedWebP(frames, delays) {
   if (!frames.length) {
     throw new Error('No frames to combine');
   }
+  if (delays.length !== frames.length) {
+    throw new Error(`delays (${delays.length}) must match frames (${frames.length})`);
+  }
 
-  return sharp(frames, { join: { animated: true } })
-    .webp({
-      quality: 80,
-      effort: 4,
-      delay: delays,
-      loop: 0
-    })
-    .toBuffer();
+  // Single-frame case: skip muxing, just return a plain static WebP.
+  if (frames.length === 1) {
+    return sharp(frames[0]).webp({ quality: 80, effort: 4 }).toBuffer();
+  }
+
+  // Encode each PNG frame as a static lossy WebP (smaller than PNG, and
+  // node-webpmux's generateFrame consumes WebP buffers).
+  const webpFrames = await Promise.all(
+    frames.map((png) => sharp(png).webp({ quality: 80, effort: 4 }).toBuffer())
+  );
+
+  const Image = webpmux.Image;
+  await Image.initLib();
+
+  // Determine the output canvas size from the first encoded frame so the
+  // muxed VP8X header reports the correct dimensions.
+  const firstMeta = await sharp(webpFrames[0]).metadata();
+  const width = firstMeta.width;
+  const height = firstMeta.height;
+
+  const muxFrames = [];
+  for (let i = 0; i < webpFrames.length; i++) {
+    const f = await Image.generateFrame({
+      buffer: webpFrames[i],
+      delay: delays[i]
+    });
+    muxFrames.push(f);
+  }
+
+  // loops: 0 = infinite (WebP standard).
+  return Image.save(null, {
+    frames: muxFrames,
+    width,
+    height,
+    loops: 0
+  });
 }
 
 /**

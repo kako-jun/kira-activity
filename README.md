@@ -91,7 +91,7 @@ swap し、下部のカルーセルドットと画像を完全同期させる。
 
 - Node.js / Bun + Hono (`@hono/node-server`)
 - Puppeteer + Three.js
-- Sharp
+- Sharp（フレームを静止 WebP に encode）+ node-webpmux（animated WebP の muxing）
 
 ## デプロイ
 

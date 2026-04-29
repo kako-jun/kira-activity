@@ -182,13 +182,16 @@ iframe 用 UI:
 > 単一ビュー WebP に切り替わる。読み込み待ちを隠すため、3 つの単一ビュー（kira +
 > month + week）を初期 load 時に並列 pre-warm する（`auto` は embed 側で使わないので除外）。
 
-> **Phase 5 status:** 実装済み。`/api/graph?view=auto` は sharp 0.34 の
-> `join: { animated: true }` を使って kira / month / week の 3 フレームを真の
-> animated WebP として 1 枚にエンコードする。per-frame `delay` は embed 側の
-> `VIEW_DELAYS` と一致（`[4000, 2500, 5000]` ms）、`loop: 0` で無限ループ。
-> 単一ビューエクスポート（`view=kira|month|week`）は引き続き静止 WebP。
-> embed.html の単一ビュー swap 同期ロジックは Phase 4 のまま維持しており、
-> animated WebP は GitHub プロフィール / README 配置用の正本として機能する。
+> **Phase 5 status:** 実装済み。`/api/graph?view=auto` は sharp で
+> kira / month / week の 3 フレームをそれぞれ静止 WebP に encode したあと、
+> `node-webpmux` で VP8X + ANIM + ANMF×3 の真の animated WebP コンテナに
+> muxing する。sharp 単体では静止フレーム配列から animated WebP を生成
+> できない（animated 出力は既に animated な入力の再エンコードのみ対応）ため
+> muxer を分離している。per-frame `delay` は embed 側の `VIEW_DELAYS` と一致
+> （`[4000, 2500, 5000]` ms）、`loops: 0` で無限ループ。単一ビューエクスポート
+> （`view=kira|month|week`）は引き続き静止 WebP。embed.html の単一ビュー swap
+> 同期ロジックは Phase 4 のまま維持しており、animated WebP は GitHub プロフィール
+> / README 配置用の正本として機能する。
 
 ## Information Architecture
 
@@ -219,12 +222,13 @@ iframe 用 UI:
 ## Rendering Notes
 
 `/api/graph` は Phase 5 で真の animated WebP に対応済み。`view=auto`（デフォルト）は
-sharp 0.34 の `join: { animated: true }` で kira / month / week の 3 フレームを 1 枚の
-animated WebP にエンコードして返す。per-frame delay は embed の VIEW_DELAYS と揃えている。
+sharp で各フレームを静止 WebP に encode したあと、node-webpmux で kira / month / week
+の 3 フレームを 1 枚の animated WebP（VP8X + ANIM + ANMF×3）に muxing して返す。
+per-frame delay は embed の VIEW_DELAYS と揃えている。
 
 優先順位:
 
-1. ~~真の animated WebP 化~~（Phase 5 完了: sharp 0.34 `join: { animated: true }` で実現）
+1. ~~真の animated WebP 化~~（Phase 5 完了: sharp で frame encode + node-webpmux で muxing）
 2. ~~`kira` ビューを Kira Screen として再設計~~（Phase 2 完了: surface + wireframe + peak edge）
 3. ~~`week` ビューを Weekly Overlay 主役の見た目に再設計~~（Phase 3 完了: 7×24 累積オーバーレイ）
 4. ~~`month` ビューを Month View として再定義~~（Phase 3 完了: Sun..Sat カレンダー + per-cell 24h strip）
