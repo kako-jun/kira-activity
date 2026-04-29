@@ -17,13 +17,17 @@ const PORT = Number(process.env.PORT) || 3000;
 const cache = new CacheManager();
 
 // Shared query param contract
-const VALID_SOURCES = new Set(['github', 'hatena']);
+const VALID_SOURCES = new Set(['github', 'hatena', 'rss']);
 const VALID_THEMES = new Set(PALETTE_THEMES);
 const VALID_SIZES = new Set(['small', 'medium', 'large']);
 const VALID_VIEWS = new Set(['kira', 'month', 'week', 'auto']);
 // GitHub username spec: 1-39 chars, alphanumerics and hyphens.
 // We accept underscore too for forward compatibility with hatena IDs.
 const USER_PATTERN = /^[A-Za-z0-9_-]{1,39}$/;
+// `feed` is a fully qualified http/https URL. We only enforce a coarse shape
+// here (scheme + non-whitespace + length cap) because the client-side fetcher
+// in services/rss.js will fail loudly on actual network/parse errors.
+const FEED_URL_PATTERN = /^https?:\/\/[^\s]{1,2048}$/i;
 
 function parseSharedParams(c) {
   const user = c.req.query('user');
@@ -31,6 +35,7 @@ function parseSharedParams(c) {
   const theme = c.req.query('theme') || 'film';
   const size = c.req.query('size') || 'medium';
   const view = c.req.query('view') || 'auto';
+  const rawFeed = (c.req.query('feed') || '').trim();
 
   if (!user) {
     return { error: 'user parameter is required' };
@@ -51,11 +56,27 @@ function parseSharedParams(c) {
     return { error: `invalid view: ${view}` };
   }
 
+  // `feed` is required when source=rss and ignored otherwise. We discard it
+  // for non-rss sources so it does not pollute the cache key (or accidentally
+  // feed into a future provider that hasn't opted in to it yet).
+  let feed;
+  if (source === 'rss') {
+    if (!rawFeed) {
+      return { error: 'feed parameter is required when source=rss' };
+    }
+    if (!FEED_URL_PATTERN.test(rawFeed)) {
+      return { error: 'invalid feed: must be an http(s) URL' };
+    }
+    feed = rawFeed;
+  } else {
+    feed = undefined;
+  }
+
   // Resolve palette once per request and pass it down. Sanitized so any
   // accidental non-hex value is replaced before it reaches CSS injection.
   const palette = sanitizePalette(getPalette(theme, source));
 
-  return { user, source, theme, size, view, palette };
+  return { user, source, theme, size, view, palette, feed };
 }
 
 // Eager load template at module init. Failing fast at startup is preferable
@@ -85,7 +106,9 @@ function renderEmbed(params) {
     SOURCE: params.source,
     THEME: params.theme,
     SIZE: params.size,
-    VIEW: params.view
+    VIEW: params.view,
+    // null when source != rss so the embed JS can skip appending &feed=.
+    FEED: params.feed ?? null
   };
   const cssMap = {
     PALETTE_BG: params.palette.background,
@@ -95,7 +118,7 @@ function renderEmbed(params) {
     PALETTE_HIGHLIGHT: params.palette.highlight
   };
   return EMBED_TEMPLATE.replace(
-    /__(USER|SOURCE|THEME|SIZE|VIEW|PALETTE_BG|PALETTE_INK|PALETTE_GRID|PALETTE_ACCENT|PALETTE_HIGHLIGHT)__/g,
+    /__(USER|SOURCE|THEME|SIZE|VIEW|FEED|PALETTE_BG|PALETTE_INK|PALETTE_GRID|PALETTE_ACCENT|PALETTE_HIGHLIGHT)__/g,
     (_, k) => {
       if (k in cssMap) return cssMap[k];
       return JSON.stringify(scriptMap[k]).replace(/</g, '\\u003c');
@@ -137,10 +160,16 @@ app.get('/api/graph', async (c) => {
     return c.json({ error: params.error }, 400);
   }
 
-  const { user, source, theme, size, view, palette } = params;
+  const { user, source, theme, size, view, palette, feed } = params;
 
   try {
-    const cacheKey = `graph_${source}_${user}_${theme}_${size}_${view}`;
+    // Encode the feed URL into a short stable suffix so two different feeds
+    // for the same source=rss don't collide in cache. base64url is safe for
+    // a cache key (no '/', '+', '='). Truncating to 16 chars keeps the key
+    // compact at the cost of a ~10^-9 collision risk per user, which is
+    // acceptable for a 1-hour cached image.
+    const feedKey = feed ? `_${Buffer.from(feed).toString('base64url').slice(0, 16)}` : '';
+    const cacheKey = `graph_${source}_${user}_${theme}_${size}_${view}${feedKey}`;
     const cached = cache.get(cacheKey);
     if (cached) {
       return new Response(cached, {
@@ -152,8 +181,8 @@ app.get('/api/graph', async (c) => {
     }
 
     const webpBuffer = view === 'auto'
-      ? await generateAnimatedWebP(user, source, theme, size, palette)
-      : await generateView(user, source, view, theme, size, palette);
+      ? await generateAnimatedWebP(user, source, theme, size, palette, feed)
+      : await generateView(user, source, view, theme, size, palette, feed);
 
     cache.set(cacheKey, webpBuffer);
 
