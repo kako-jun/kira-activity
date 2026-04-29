@@ -24,6 +24,10 @@ import { RssAtomFeedClient } from './rss.js';
  * @typedef {Object} ActivityProvider
  * @property {string} source - Source identifier matching VALID_SOURCES
  * @property {(params: { user: string, feed?: string }) => Promise<NormalizedActivity>} fetchActivity
+ * @property {(params: { user: string, feed?: string }) => string} [inflightIdentity]
+ *   Optional. Returns the value used to dedupe in-flight requests. Defaults to
+ *   `${user}\0${feed}`. Override when, for example, two requests should share
+ *   an upstream fetch even if their `user` labels differ (rss).
  */
 
 const githubClient = new GitHubClient();
@@ -63,7 +67,11 @@ const PROVIDERS = {
     fetchActivity: async ({ user, feed }) => {
       if (!feed) throw new Error('feed URL required for source=rss');
       return await rssClient.getComprehensiveActivity(feed, user);
-    }
+    },
+    // For rss, `user` is a display label only (it is not part of the cache
+    // key in server.js either), so two parallel requests for the same feed
+    // with different labels should share one upstream fetch.
+    inflightIdentity: ({ feed }) => `feed:${feed ?? ''}`
   }
 };
 
@@ -83,8 +91,8 @@ export function getProvider(source) {
  */
 const inFlight = new Map();
 
-function inflightKey(source, user, feed) {
-  return `${source}\0${user}\0${feed ?? ''}`;
+function defaultInflightIdentity({ user, feed }) {
+  return `${user}\0${feed ?? ''}`;
 }
 
 /**
@@ -95,11 +103,13 @@ function inflightKey(source, user, feed) {
  * @param {{ user: string, feed?: string }} params
  * @returns {Promise<NormalizedActivity>}
  */
-export async function fetchActivity(source, params) {
+export async function fetchActivity(source, params = {}) {
   const provider = getProvider(source);
   if (!provider) throw new Error(`Unknown source: ${source}`);
+  if (!params.user) throw new Error(`user required for source=${source}`);
 
-  const key = inflightKey(source, params.user, params.feed);
+  const identity = (provider.inflightIdentity ?? defaultInflightIdentity)(params);
+  const key = `${source}\0${identity}`;
   const existing = inFlight.get(key);
   if (existing) return existing;
 

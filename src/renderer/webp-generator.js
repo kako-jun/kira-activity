@@ -58,8 +58,8 @@ async function getBrowser() {
  * Generate animated WebP cycling through kira -> month -> week.
  * Used by /api/graph?view=auto (the canonical export of /embed).
  *
- * @param {string} username - Username (GitHub or Hatena)
- * @param {string} source - 'github' or 'hatena'
+ * @param {string} username - User identifier or display label (depends on source)
+ * @param {string} source - SUPPORTED_SOURCES のいずれか ('github' | 'hatena' | 'rss')
  * @param {string} theme - Visualization theme. VALID_THEMES のいずれか
  *   ('film' | 'github' | 'hatena' | 'sepia' | 'mono')。それ以外は film にフォールバック。
  * @param {string} size - 'small' | 'medium' | 'large'
@@ -103,7 +103,7 @@ export async function generateAnimatedWebP(username, source, theme, size, palett
  * Used by /api/graph?view=kira|month|week.
  *
  * @param {string} username
- * @param {string} source - 'github' | 'hatena'
+ * @param {string} source - SUPPORTED_SOURCES のいずれか ('github' | 'hatena' | 'rss')
  * @param {'kira'|'month'|'week'} view
  * @param {string} theme - VALID_THEMES のいずれか
  *   ('film' | 'github' | 'hatena' | 'sepia' | 'mono')。それ以外は film にフォールバック。

@@ -102,7 +102,13 @@ data-processor 側のフォールバックを通って消費される。target s
 いる。新しい source を増やすときは:
 
 1. `services/registry.js` の `PROVIDERS` に 1 エントリを追加（必要なら新しい client を import）
-2. それだけ。route / webp-generator / palette は触らない
+2. data fetch contract はそれで完結。route / webp-generator / palette は触らない
+
+ただし route policy（user の文字種、必要な追加クエリ、エラーマスキング等）は source
+固有の判断が残る。新 source が github/hatena 系の ID-style か rss 系の URL-style か
+で決まらない第三カテゴリ（OAuth 認証など）の場合は `server.js` 側のバリデーション・
+キャッシュキーにも分岐が必要。registry は data layer の統一であって、route layer の
+policy は別軸。
 
 ### in-flight dedup
 
@@ -111,7 +117,9 @@ data-processor 側のフォールバックを通って消費される。target s
 `fetchActivity` は `inFlight: Map<key, Promise>` で in-flight な Promise を共有し、
 upstream fetch を 1 回に集約する。`finally` で entry を消すので、エラーが永続キャッシュ
 に化けることはない。以前 webp-generator にあった `inFlightFeeds`（rss 専用）は
-registry に統合済み — 全 source に対して同じ dedup ロジックが効く。
+registry に統合済み — 全 source に対して同じ dedup ロジックが効く。dedup の identity
+は provider が `inflightIdentity()` で上書きできる: rss は user がラベル扱いなので
+feed のみで keying し、同じ feed を別ラベルで叩く並列リクエストも 1 fetch に集約する。
 
 ## エンドポイント
 
